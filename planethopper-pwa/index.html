@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Planet Hopper">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Planet Hopper</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box;
+    -webkit-user-select:none; user-select:none;
+    -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent; }
+  html, body, #root { width:100%; height:100%; overflow:hidden; background:#000; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script>
+"use strict";
+const { useState, useEffect, useRef, useCallback } = React;
+const h = React.createElement;
+
+const TILE = 16, MAP_W = 40, MAP_H = 30, VIEW_W = 20, VIEW_H = 15;
+const PLAYER_SPEED = 1.8, PICKUP_DIST = 14, DEPOSIT_DIST = 28;
+const ITEM_BOB_SPEED = 0.05, INVENTORY_CAP = 6, MAX_LIVES = 10;
+const ALIEN_AGGRO_DIST = 70, ALIEN_SPEED = 0.55, ALIEN_CATCH_DIST = 10, SAFE_ZONE_DIST = 40;
+
+const PLANETS = [
+  { name:"Pluto", subtitle:"Dwarf Planet", bg:"#0d0d1a", ground:["#1e1e30","#252540","#1a1a2c"],
+    materials:[{name:"Ice Crystal",color:"#7ec8e3",icon:"crystal",needed:3},{name:"Dark Rock",color:"#8888a0",icon:"rock",needed:3}],
+    features:"#2a2a44", accent:"#4477aa", spawn:12, aliens:3 },
+  { name:"Neptune", subtitle:"The Windy Giant", bg:"#0a0e2a", ground:["#142244","#1a2a55","#0f1a3a"],
+    materials:[{name:"Diamond Dust",color:"#c8e0ff",icon:"crystal",needed:4},{name:"Methane Ice",color:"#44aadd",icon:"gem",needed:3}],
+    features:"#1a3366", accent:"#3366cc", spawn:14, aliens:3 },
+  { name:"Uranus", subtitle:"The Tilted World", bg:"#0a1a1a", ground:["#1a3333","#1e3a3a","#152e2e"],
+    materials:[{name:"Ammonia Shard",color:"#66ddcc",icon:"crystal",needed:4},{name:"Magnetic Ore",color:"#aa88cc",icon:"rock",needed:4}],
+    features:"#2a4444", accent:"#44aa99", spawn:14, aliens:4 },
+  { name:"Saturn", subtitle:"The Ringed Beauty", bg:"#1a1408", ground:["#2a2210","#332a14","#241e0c"],
+    materials:[{name:"Ring Fragment",color:"#e8d088",icon:"gem",needed:5},{name:"Titan Steel",color:"#cc9944",icon:"rock",needed:4}],
+    features:"#3a3018", accent:"#ccaa44", spawn:16, aliens:4 },
+  { name:"Jupiter", subtitle:"King of Planets", bg:"#1a0e08", ground:["#2e1a10","#3a2214","#28160c"],
+    materials:[{name:"Storm Core",color:"#ff8844",icon:"gem",needed:5},{name:"Plasma Cell",color:"#ff5555",icon:"crystal",needed:5}],
+    features:"#442211", accent:"#dd6633", spawn:18, aliens:5 },
+  { name:"Mars", subtitle:"The Red Planet", bg:"#1a0808", ground:["#3a1a10","#442214","#30140c"],
+    materials:[{name:"Iron Ore",color:"#cc5533",icon:"rock",needed:5},{name:"Ancient Tech",color:"#44ddaa",icon:"gem",needed:4}],
+    features:"#4a2015", accent:"#cc4422", spawn:16, aliens:5 },
+  { name:"Earth", subtitle:"Home Sweet Home", bg:"#0a1020", ground:["#1a3322","#224428","#163020"],
+    materials:[{name:"Carbon Fiber",color:"#aaaaaa",icon:"rock",needed:5},{name:"Silicon Chip",color:"#44cc88",icon:"gem",needed:5}],
+    features:"#2a4430", accent:"#3388cc", spawn:18, aliens:6 },
+  { name:"Venus", subtitle:"The Inferno", bg:"#1a1000", ground:["#3a2a08","#443210","#2e2206"],
+    materials:[{name:"Sulfur Crystal",color:"#ddcc22",icon:"crystal",needed:6},{name:"Heat Shield",color:"#ff6644",icon:"rock",needed:5}],
+    features:"#4a3a10", accent:"#dd8800", spawn:20, aliens:7 },
+  { name:"Mercury", subtitle:"The Scorched World", bg:"#1a1010", ground:["#332222","#3a2828","#2c1c1c"],
+    materials:[{name:"Solar Shard",color:"#ffdd44",icon:"crystal",needed:6},{name:"Core Metal",color:"#ee8855",icon:"rock",needed:6}],
+    features:"#442a2a", accent:"#ffaa44", spawn:22, aliens:8 },
+];
+const FINAL_PLANET = { name:"Escape!", subtitle:"Beyond the Solar System", bg:"#050510", ground:["#0a0a18","#0c0c1c","#080814"], features:"#111122", accent:"#88aaff" };
+
+function seededRandom(seed){ let s=seed; return ()=>{ s=(s*16807)%2147483647; return(s-1)/2147483646; }; }
+
+function generateMap(planetIdx){
+  const rng=seededRandom(planetIdx*7919+1337), planet=PLANETS[planetIdx], terrain=[];
+  for(let y=0;y<MAP_H;y++){ terrain[y]=[]; for(let x=0;x<MAP_W;x++){ const r=rng(); terrain[y][x]={groundIdx:Math.floor(rng()*3),obstacle:r<0.06,feature:r>=0.06&&r<0.1}; } }
+  const bx=19,by=14;
+  for(let dy=-3;dy<=3;dy++) for(let dx=-3;dx<=3;dx++){ const ty=by+dy,tx=bx+dx; if(ty>=0&&ty<MAP_H&&tx>=0&&tx<MAP_W){ terrain[ty][tx].obstacle=false; terrain[ty][tx].feature=false; } }
+  for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){ const ty=3+dy,tx=3+dx; if(ty>=0&&ty<MAP_H&&tx>=0&&tx<MAP_W) terrain[ty][tx].obstacle=false; }
+  const items=[];
+  for(let i=0;i<planet.spawn;i++){
+    let ix,iy,tries=0;
+    do{ ix=Math.floor(rng()*(MAP_W-4))+2; iy=Math.floor(rng()*(MAP_H-4))+2; tries++; }
+    while(tries<50&&(terrain[iy][ix].obstacle||(Math.abs(ix-bx)<3&&Math.abs(iy-by)<3)||(Math.abs(ix-3)<2&&Math.abs(iy-3)<2)));
+    items.push({x:ix*TILE+TILE/2,y:iy*TILE+TILE/2,matIdx:i%planet.materials.length,collected:false,id:i});
+  }
+  const aliens=[];
+  for(let i=0;i<(planet.aliens||3);i++){
+    let ax,ay,tries=0;
+    do{ ax=Math.floor(rng()*(MAP_W-6))+3; ay=Math.floor(rng()*(MAP_H-6))+3; tries++; }
+    while(tries<200&&(terrain[ay][ax].obstacle||(Math.abs(ax-bx)<5&&Math.abs(ay-by)<5)||(Math.hypot((ax-3)*TILE,(ay-3)*TILE)<ALIEN_AGGRO_DIST*2.5)));
+    aliens.push({x:ax*TILE+TILE/2,y:ay*TILE+TILE/2,homeX:ax*TILE+TILE/2,homeY:ay*TILE+TILE/2,chasing:false,id:i});
+  }
+  return {terrain,items,aliens,buildZone:{x:bx*TILE+TILE/2,y:by*TILE+TILE/2}};
+}
+
+function drawPixelChar(ctx,x,y,dir){
+  ctx.fillStyle="rgba(0,0,0,0.3)"; ctx.fillRect(x-5,y+4,10,4);
+  ctx.fillStyle="#555"; ctx.fillRect(x-4,y+2,3,3); ctx.fillRect(x+1,y+2,3,3);
+  ctx.fillStyle="#ddd"; ctx.fillRect(x-4,y-4,8,7);
+  ctx.fillStyle="#999";
+  if(dir===1) ctx.fillRect(x+4,y-3,2,5); else if(dir===3) ctx.fillRect(x-6,y-3,2,5); else ctx.fillRect(x-5,y-2,1,4);
+  ctx.fillStyle="#eef"; ctx.fillRect(x-4,y-8,8,5);
+  ctx.fillStyle="#224";
+  if(dir===0) ctx.fillRect(x-3,y-6,6,2); else if(dir===1) ctx.fillRect(x+1,y-6,3,3); else if(dir===2) ctx.fillRect(x-3,y-5,6,1); else ctx.fillRect(x-4,y-6,3,3);
+  ctx.fillStyle="#f44"; ctx.fillRect(x+2,y-10,1,3); ctx.fillRect(x+1,y-11,3,1);
+}
+
+function drawAlien(ctx,x,y,chasing,tick){
+  const bob=Math.sin(tick*0.1+x)*1.5, ay=y+bob;
+  ctx.fillStyle="rgba(0,0,0,0.3)"; ctx.fillRect(x-5,ay+5,10,3);
+  ctx.fillStyle=chasing?"#ff3333":"#44dd44"; ctx.fillRect(x-5,ay-4,10,8); ctx.fillRect(x-4,ay-6,8,2);
+  ctx.fillStyle="#000"; ctx.fillRect(x-3,ay-3,2,2); ctx.fillRect(x+1,ay-3,2,2);
+  ctx.fillStyle=chasing?"#ff0":"#fff"; ctx.fillRect(x-3,ay-3,1,1); ctx.fillRect(x+1,ay-3,1,1);
+  ctx.fillStyle=chasing?"#ff3333":"#44dd44"; ctx.fillRect(x-3,ay-9,1,3); ctx.fillRect(x+2,ay-9,1,3);
+  ctx.fillStyle=chasing?"#ff8":"#8f8"; ctx.fillRect(x-4,ay-10,2,2); ctx.fillRect(x+2,ay-10,2,2);
+  const lo=Math.sin(tick*0.15+x)>0?1:0;
+  ctx.fillStyle=chasing?"#cc2222":"#33aa33"; ctx.fillRect(x-4,ay+4+lo,2,3); ctx.fillRect(x+2,ay+4+(1-lo),2,3);
+  if(chasing){ ctx.fillStyle="#ff000044"; const r=8+Math.sin(tick*0.2)*2; ctx.fillRect(x-r,ay-r,r*2,r*2); }
+}
+
+function drawItem(ctx,x,y,mat,t,icon){
+  const bob=Math.sin(t*ITEM_BOB_SPEED+x+y)*2, dy=y+bob;
+  ctx.fillStyle=mat.color+"33"; ctx.fillRect(x-6,dy-6,12,12); ctx.fillStyle=mat.color;
+  if(icon==="crystal"){ ctx.fillRect(x-2,dy-6,4,2); ctx.fillRect(x-3,dy-4,6,4); ctx.fillRect(x-2,dy,4,2); }
+  else if(icon==="gem"){ ctx.fillRect(x-4,dy-2,8,4); ctx.fillRect(x-2,dy-4,4,2); ctx.fillRect(x-2,dy+2,4,2); }
+  else{ ctx.fillRect(x-4,dy-3,8,6); ctx.fillStyle=mat.color+"88"; ctx.fillRect(x-2,dy-1,3,2); }
+  if(Math.sin(t*0.08+x*3)>0.8){ ctx.fillStyle="#fff"; ctx.fillRect(x+3,dy-5,1,1); }
+}
+
+function drawBuildZone(ctx,x,y,progress,totalNeeded,planet,phase){
+  ctx.fillStyle="#44ff4408"; ctx.fillRect(x-40,y-40,80,80);
+  ctx.fillStyle="#ffffff10"; ctx.fillRect(x-32,y-32,64,64);
+  ctx.fillStyle="#ffffff18"; ctx.fillRect(x-24,y-24,48,48);
+  ctx.fillStyle=planet.accent+"44";
+  for(let i=-20;i<=20;i+=8){ ctx.fillRect(x+i,y-24,1,48); ctx.fillRect(x-24,y+i,48,1); }
+  ctx.fillStyle=planet.accent+"aa";
+  [[-24,-24],[20,-24],[-24,20],[20,20]].forEach(([dx,dy])=>ctx.fillRect(x+dx,y+dy,4,4));
+  ctx.fillStyle="#44ff4433";
+  ctx.fillRect(x-32,y-32,64,1); ctx.fillRect(x-32,y+31,64,1); ctx.fillRect(x-32,y-32,1,64); ctx.fillRect(x+31,y-32,1,64);
+  const pct=progress/totalNeeded;
+  if(pct>0&&phase!=="launching"){
+    const rh=Math.floor(pct*30); ctx.fillStyle="#ccc"; ctx.fillRect(x-4,y+10-rh,8,rh);
+    if(pct>0.3){ ctx.fillStyle=planet.accent; ctx.fillRect(x-3,y+5-rh*0.3,6,4); }
+    if(pct>0.6){ ctx.fillStyle="#888"; ctx.fillRect(x-6,y+8,3,4); ctx.fillRect(x+3,y+8,3,4); }
+    if(pct>=1){ ctx.fillStyle="#e44"; ctx.fillRect(x-3,y-22,6,3); ctx.fillRect(x-2,y-25,4,3); ctx.fillRect(x-1,y-27,2,2);
+      ctx.fillStyle="#ff8800"; ctx.fillRect(x-3,y+12,6,3); ctx.fillStyle="#ffcc00"; ctx.fillRect(x-2,y+15,4,2+Math.floor(Math.random()*3)); }
+  }
+  ctx.textAlign="center";
+  if(phase==="launching"){} else if(pct<1){ ctx.fillStyle="#ffffff88"; ctx.font="7px monospace"; ctx.fillText("SAFE ZONE",x,y+36); }
+  else{ ctx.fillStyle="#44ff88"; ctx.font="bold 8px monospace"; ctx.fillText("LAUNCH!",x,y+36); }
+}
+
+function drawObstacle(ctx,x,y){ ctx.fillStyle="#5a5a64"; ctx.fillRect(x+2,y+4,12,8); ctx.fillRect(x+4,y+2,8,12); ctx.fillStyle="#6e6e78"; ctx.fillRect(x+5,y+5,4,3); ctx.fillStyle="#48484f"; ctx.fillRect(x+3,y+9,5,2); }
+function drawFeature(ctx,x,y,planet){ ctx.fillStyle=planet.accent+"44"; ctx.fillRect(x+4,y+6,8,4); ctx.fillRect(x+6,y+4,4,8); }
+
+function dropInventory(g,px,py){
+  if(!g.inventory.length) return;
+  const c=g.inventory.length;
+  for(let i=0;i<c;i++){
+    const a=(i/c)*Math.PI*2, d=24+Math.random()*12;
+    const ix=Math.max(TILE,Math.min(MAP_W*TILE-TILE,px+Math.cos(a)*d));
+    const iy=Math.max(TILE,Math.min(MAP_H*TILE-TILE,py+Math.sin(a)*d));
+    g.map.items.push({x:ix,y:iy,matIdx:g.inventory[i],collected:false,id:9000+g.tick+i});
+  }
+  g.inventory=[];
+}
+
+const btnS = {width:32,height:32,background:"#1a1a1a",border:"1px solid #444",borderRadius:4,color:"#aaa",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"monospace",touchAction:"none",WebkitUserSelect:"none",userSelect:"none"};
+
+function PlanetHopper(){
+  const canvasRef=useRef(null);
+  const gameRef=useRef({
+    planetIdx:0, player:{x:3*TILE+8,y:3*TILE+8,dir:0,moving:false}, keys:{}, map:null,
+    inventory:[], deposited:{}, tick:0, phase:"menu", launchTimer:0, arriveTimer:0,
+    msgTimer:0, msg:"", depositCooldown:0, rocketReady:false, tapTarget:null,
+    lives:MAX_LIVES, hurtTimer:0, deathTimer:0, camX:0, camY:0
+  });
+  const [ui,setUi]=useState({planet:0,inventory:[],progress:0,total:6,phase:"menu",msg:"",rocketReady:false,lives:MAX_LIVES,deposited:{}});
+
+  const initPlanet=useCallback((idx,keepLives)=>{
+    const g=gameRef.current;
+    g.planetIdx=idx;
+    g.map=idx<PLANETS.length?generateMap(idx):null;
+    g.player.x=3*TILE+8; g.player.y=3*TILE+8;
+    g.inventory=[]; g.deposited={}; g.depositCooldown=0; g.rocketReady=false; g.tapTarget=null; g.hurtTimer=0; g.deathTimer=0;
+    if(!keepLives) g.lives=MAX_LIVES;
+    if(idx<PLANETS.length) PLANETS[idx].materials.forEach((_,i)=>{ g.deposited[i]=0; });
+    g.phase=idx>=PLANETS.length?"victory":"arriving"; g.arriveTimer=60;
+    g.msg=idx>=PLANETS.length?"ESCAPING THE SOLAR SYSTEM!":`Arriving at ${PLANETS[idx].name}...`; g.msgTimer=90;
+  },[]);
+
+  const respawnOnPlanet=useCallback((g)=>{
+    dropInventory(g,g.player.x,g.player.y);
+    g.player.x=3*TILE+8; g.player.y=3*TILE+8; g.tapTarget=null;
+    if(g.map) for(const a of g.map.aliens){ a.x=a.homeX; a.y=a.homeY; a.chasing=false; }
+  },[]);
+
+  useEffect(()=>{ initPlanet(0); gameRef.current.phase="menu"; },[initPlanet]);
+
+  useEffect(()=>{
+    const hk=(e,d)=>{ if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","w","a","s","d"," ","e","r"].includes(e.key)){ e.preventDefault(); gameRef.current.keys[e.key]=d; if(d) gameRef.current.tapTarget=null; } };
+    const kd=e=>hk(e,true), ku=e=>hk(e,false);
+    window.addEventListener("keydown",kd); window.addEventListener("keyup",ku);
+    return ()=>{ window.removeEventListener("keydown",kd); window.removeEventListener("keyup",ku); };
+  },[]);
+
+  useEffect(()=>{
+    const canvas=canvasRef.current; if(!canvas) return;
+    const ctx=canvas.getContext("2d"); ctx.imageSmoothingEnabled=false;
+    let animId;
+    const loop=()=>{
+      const g=gameRef.current; g.tick++;
+      const planet=g.planetIdx<PLANETS.length?PLANETS[g.planetIdx]:FINAL_PLANET;
+      const totalNeeded=g.planetIdx<PLANETS.length?PLANETS[g.planetIdx].materials.reduce((s,m)=>s+m.needed,0):0;
+
+      if(g.phase==="launching"){ g.launchTimer--; if(g.launchTimer<=0) initPlanet(g.planetIdx+1,true); }
+      if(g.phase==="arriving"){ g.arriveTimer--; if(g.arriveTimer<=0) g.phase=g.planetIdx>=PLANETS.length?"victory":"play"; }
+      if(g.msgTimer>0) g.msgTimer--;
+      if(g.depositCooldown>0) g.depositCooldown--;
+      if(g.hurtTimer>0) g.hurtTimer--;
+      if(g.deathTimer>0){ g.deathTimer--; if(g.deathTimer<=0){ if(g.lives<=0){ g.msg="GAME OVER"; g.msgTimer=90; g.phase="menu"; } else respawnOnPlanet(g); } }
+
+      if(g.phase==="play"&&g.deathTimer<=0){
+        const k=g.keys; let dx=0,dy=0;
+        const kb=k["ArrowUp"]||k["w"]||k["ArrowDown"]||k["s"]||k["ArrowLeft"]||k["a"]||k["ArrowRight"]||k["d"];
+        if(kb){ if(k["ArrowUp"]||k["w"]){dy=-1;g.player.dir=0;} if(k["ArrowDown"]||k["s"]){dy=1;g.player.dir=2;} if(k["ArrowLeft"]||k["a"]){dx=-1;g.player.dir=3;} if(k["ArrowRight"]||k["d"]){dx=1;g.player.dir=1;} }
+        else if(g.tapTarget){ const tdx=g.tapTarget.worldX-g.player.x, tdy=g.tapTarget.worldY-g.player.y, adx=Math.abs(tdx), ady=Math.abs(tdy);
+          if(adx<4&&ady<4) g.tapTarget=null; else if(adx>ady){dx=tdx>0?1:-1;g.player.dir=dx>0?1:3;} else{dy=tdy>0?1:-1;g.player.dir=dy>0?2:0;} }
+        g.player.moving=dx!==0||dy!==0;
+        if(dx!==0||dy!==0){
+          const len=Math.sqrt(dx*dx+dy*dy), nx=g.player.x+(dx/len)*PLAYER_SPEED, ny=g.player.y+(dy/len)*PLAYER_SPEED;
+          const tX=Math.floor(nx/TILE), tY=Math.floor(ny/TILE); let blocked=false;
+          for(let cy=tY-1;cy<=tY+1;cy++) for(let cx=tX-1;cx<=tX+1;cx++)
+            if(cy>=0&&cy<MAP_H&&cx>=0&&cx<MAP_W&&g.map.terrain[cy][cx].obstacle){ if(Math.abs(nx-cx*TILE-TILE/2)<10&&Math.abs(ny-cy*TILE-TILE/2)<10) blocked=true; }
+          if(!blocked&&nx>6&&nx<MAP_W*TILE-6&&ny>6&&ny<MAP_H*TILE-6){ g.player.x=nx; g.player.y=ny; }
+          else{ if(blocked&&g.inventory.length>0){ dropInventory(g,g.player.x,g.player.y); g.msg="Bumped a rock! Items dropped!"; g.msgTimer=60; g.hurtTimer=15; } if(g.tapTarget) g.tapTarget=null; }
+        }
+        if(g.map&&g.inventory.length<INVENTORY_CAP) for(const item of g.map.items){ if(!item.collected&&Math.hypot(g.player.x-item.x,g.player.y-item.y)<PICKUP_DIST){ item.collected=true; g.inventory.push(item.matIdx); g.msg=`+1 ${PLANETS[g.planetIdx].materials[item.matIdx].name}`; g.msgTimer=40; break; } }
+        if(g.map&&g.inventory.length>0&&g.depositCooldown<=0){ const dist=Math.hypot(g.player.x-g.map.buildZone.x,g.player.y-g.map.buildZone.y);
+          if(dist<DEPOSIT_DIST) for(let i=0;i<g.inventory.length;i++){ const mi=g.inventory[i],m=PLANETS[g.planetIdx].materials[mi]; if(g.deposited[mi]<m.needed){ g.deposited[mi]++; g.inventory.splice(i,1); g.msg=`Deposited ${m.name}`; g.msgTimer=40; g.depositCooldown=8; break; } } }
+        const totalDep=Object.values(g.deposited).reduce((s,v)=>s+v,0); g.rocketReady=totalDep>=totalNeeded;
+        if(g.rocketReady&&(k[" "]||k["e"])){ const dist=Math.hypot(g.player.x-g.map.buildZone.x,g.player.y-g.map.buildZone.y); if(dist<DEPOSIT_DIST+10){ g.phase="launching"; g.launchTimer=90; g.msg="LAUNCHING!"; g.msgTimer=90; } }
+        if(g.map){ const pSafe=Math.hypot(g.player.x-g.map.buildZone.x,g.player.y-g.map.buildZone.y)<SAFE_ZONE_DIST;
+          for(const al of g.map.aliens){ const dtp=Math.hypot(al.x-g.player.x,al.y-g.player.y);
+            if(!pSafe&&dtp<ALIEN_AGGRO_DIST) al.chasing=true; if(pSafe||dtp>ALIEN_AGGRO_DIST*2.5) al.chasing=false;
+            let tx,ty,sp; if(al.chasing&&!pSafe){tx=g.player.x;ty=g.player.y;sp=ALIEN_SPEED;} else{tx=al.homeX;ty=al.homeY;sp=ALIEN_SPEED*0.5;}
+            const adx=tx-al.x,ady=ty-al.y,ad=Math.hypot(adx,ady);
+            if(ad>2){ const nxx=al.x+(adx/ad)*sp, nyy=al.y+(ady/ad)*sp; if(Math.hypot(nxx-g.map.buildZone.x,nyy-g.map.buildZone.y)>=SAFE_ZONE_DIST){ al.x=nxx; al.y=nyy; } }
+            if(al.chasing&&dtp<ALIEN_CATCH_DIST&&!pSafe&&g.deathTimer<=0){ g.lives--; g.hurtTimer=30; g.deathTimer=45; g.msg=g.lives<=0?"CAUGHT! No lives left...":`CAUGHT! Lost a life! (${g.lives} left)`; g.msgTimer=60; }
+          }
+        }
+      }
+
+      // RENDER
+      const W=VIEW_W*TILE, H=VIEW_H*TILE;
+      let camX=g.player.x-W/2, camY=g.player.y-H/2;
+      camX=Math.max(0,Math.min(MAP_W*TILE-W,camX)); camY=Math.max(0,Math.min(MAP_H*TILE-H,camY));
+      g.camX=camX; g.camY=camY;
+      ctx.fillStyle=planet.bg; ctx.fillRect(0,0,W,H);
+      const sr=seededRandom(g.planetIdx*31+42);
+      for(let i=0;i<30;i++){ const sx=sr()*W,sy=sr()*H; ctx.fillStyle=Math.sin(g.tick*0.03+i)>0.5?"#ffffff66":"#ffffff33"; ctx.fillRect(sx,sy,1,1); }
+      const stx=Math.floor(camX/TILE), sty=Math.floor(camY/TILE), etx=Math.min(MAP_W-1,stx+VIEW_W+1), ety=Math.min(MAP_H-1,sty+VIEW_H+1);
+      for(let ty=sty;ty<=ety;ty++) for(let tx=stx;tx<=etx;tx++){ const t=g.map?.terrain[ty]?.[tx]; if(!t) continue; const sx=tx*TILE-camX,sy=ty*TILE-camY; ctx.fillStyle=planet.ground[t.groundIdx]; ctx.fillRect(sx,sy,TILE,TILE); if(t.obstacle) drawObstacle(ctx,sx,sy); else if(t.feature) drawFeature(ctx,sx,sy,planet); }
+      if(g.map&&g.planetIdx<PLANETS.length){ const bz=g.map.buildZone; drawBuildZone(ctx,bz.x-camX,bz.y-camY,Object.values(g.deposited).reduce((s,v)=>s+v,0),totalNeeded,planet,g.phase); }
+      if(g.map) for(const it of g.map.items){ if(it.collected) continue; const sx=it.x-camX,sy=it.y-camY; if(sx>-20&&sx<W+20&&sy>-20&&sy<H+20) drawItem(ctx,sx,sy,PLANETS[g.planetIdx].materials[it.matIdx],g.tick,PLANETS[g.planetIdx].materials[it.matIdx].icon); }
+      if(g.map) for(const al of g.map.aliens){ const sx=al.x-camX,sy=al.y-camY; if(sx>-20&&sx<W+20&&sy>-20&&sy<H+20) drawAlien(ctx,sx,sy,al.chasing,g.tick); }
+      if(g.phase!=="launching"&&g.deathTimer<=0){ const px=g.player.x-camX,py=g.player.y-camY; if(g.hurtTimer<=0||g.tick%4<2) drawPixelChar(ctx,px,py,g.player.dir); }
+      if(g.phase==="launching"&&g.map){ const bzx=g.map.buildZone.x-camX,prog=1-g.launchTimer/90,ry=g.map.buildZone.y-camY-prog*300;
+        if(g.launchTimer>40){ const sh=Math.random()*3-1.5; ctx.fillStyle="#ccc"; ctx.fillRect(bzx-4+sh,ry-20,8,30); ctx.fillStyle="#e44"; ctx.fillRect(bzx-3+sh,ry-25,6,5); ctx.fillStyle=planet.accent; ctx.fillRect(bzx-3+sh,ry-15,6,4); ctx.fillStyle="#ff6600"; ctx.fillRect(bzx-4+sh,ry+10,8,8+Math.random()*10); ctx.fillStyle="#ffcc00"; ctx.fillRect(bzx-2+sh,ry+18,4,6+Math.random()*8); }
+        if(g.launchTimer<30){ ctx.fillStyle=`rgba(255,255,255,${(30-g.launchTimer)/30})`; ctx.fillRect(0,0,W,H); } }
+      if(g.phase==="arriving"){ ctx.fillStyle=`rgba(255,255,255,${g.arriveTimer/60})`; ctx.fillRect(0,0,W,H); }
+      if(g.hurtTimer>0){ ctx.fillStyle=`rgba(255,0,0,${g.hurtTimer/60})`; ctx.fillRect(0,0,W,H); }
+      if(g.phase==="victory"){ ctx.fillStyle="rgba(0,0,0,0.7)"; ctx.fillRect(0,0,W,H);
+        for(let i=0;i<40;i++){ ctx.fillStyle=i%3===0?"#88aaff":"#ffffff88"; ctx.fillRect((g.tick*(1+i*0.3)+i*73)%W,(i*17+g.tick*0.2)%H,i%5===0?2:1,1); }
+        ctx.fillStyle="#ffcc44"; ctx.font="bold 14px monospace"; ctx.textAlign="center"; ctx.fillText("SOLAR SYSTEM ESCAPED!",W/2,H/2-40);
+        ctx.fillStyle="#88aaff"; ctx.font="9px monospace"; ctx.fillText("You launched from Mercury and broke",W/2,H/2-15); ctx.fillText("free of the Sun's gravity!",W/2,H/2-3);
+        ctx.fillStyle="#666"; ctx.font="7px monospace"; ctx.fillText("Next stop: Alpha Centauri?",W/2,H/2+16); ctx.fillText("New solar systems coming soon...",W/2,H/2+28);
+        ctx.fillStyle="#fff"; ctx.font="bold 8px monospace"; ctx.fillText(`Lives remaining: ${g.lives}/${MAX_LIVES}`,W/2,H/2+48);
+        ctx.fillStyle=g.tick%40<20?"#44ff88":"#22cc66"; ctx.fillText("Press ACTION to play again",W/2,H/2+65);
+        if(g.keys[" "]||g.keys["e"]){ g.phase="menu"; g.keys[" "]=false; g.keys["e"]=false; } }
+
+      setUi({planet:g.planetIdx,inventory:[...g.inventory],progress:Object.values(g.deposited).reduce((s,v)=>s+v,0),total:totalNeeded,phase:g.phase,msg:g.msgTimer>0?g.msg:"",deposited:{...g.deposited},rocketReady:g.rocketReady,lives:g.lives});
+      animId=requestAnimationFrame(loop);
+    };
+    animId=requestAnimationFrame(loop);
+    return ()=>cancelAnimationFrame(animId);
+  },[initPlanet,respawnOnPlanet]);
+
+  const pressKey=(key,down)=>{ gameRef.current.keys[key]=down; if(down&&key!==" "&&key!=="e") gameRef.current.tapTarget=null; };
+  const handleCanvasTap=(e)=>{
+    const g=gameRef.current; if(g.phase!=="play"||g.deathTimer>0) return;
+    const c=canvasRef.current; if(!c) return; const r=c.getBoundingClientRect();
+    const sx=(VIEW_W*TILE)/r.width, sy=(VIEW_H*TILE)/r.height;
+    g.tapTarget={worldX:(e.clientX-r.left)*sx+(g.camX||0), worldY:(e.clientY-r.top)*sy+(g.camY||0)};
+  };
+  const startGame=(idx)=>{ initPlanet(idx); gameRef.current.lives=MAX_LIVES; };
+
+  const planet=ui.planet<PLANETS.length?PLANETS[ui.planet]:FINAL_PLANET;
+  const gameW=VIEW_W*TILE*2, showMenu=ui.phase==="menu";
+
+  // Build button helper
+  const btn=(label,key,extra)=>h("button",{onPointerDown:()=>pressKey(key,true),onPointerUp:()=>pressKey(key,false),onPointerLeave:()=>pressKey(key,false),style:{...btnS,...(extra||{})}},label);
+
+  return h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",width:"100%",minHeight:"100vh",background:"#000",fontFamily:"'Courier New',monospace",overflow:"auto",userSelect:"none",padding:"6px 0 10px",boxSizing:"border-box",position:"relative"}},
+    showMenu&&h("div",{style:{position:"fixed",top:0,left:0,right:0,bottom:0,background:"#000e",zIndex:100,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"'Courier New',monospace",padding:20,boxSizing:"border-box"}},
+      h("div",{style:{color:"#ffcc44",fontSize:28,fontWeight:"bold",marginBottom:6}},"PLANET HOPPER"),
+      h("div",{style:{color:"#888",fontSize:13,marginBottom:24}},"Pluto \u2192 Mercury"),
+      h("div",{style:{color:"#ff8844",fontSize:11,marginBottom:12,border:"1px solid #ff884444",padding:"4px 12px",borderRadius:4}},"\u2699 TEST MODE \u2014 Pick starting planet"),
+      h("div",{style:{display:"flex",flexDirection:"column",gap:6,width:280}},
+        PLANETS.map((p,i)=>h("button",{key:i,onClick:()=>startGame(i),style:{padding:"10px 16px",background:"#111",border:`1px solid ${p.accent}66`,borderRadius:4,cursor:"pointer",display:"flex",alignItems:"center",gap:10,fontFamily:"'Courier New',monospace",textAlign:"left"}},
+          h("div",{style:{width:10,height:10,borderRadius:"50%",background:p.accent,flexShrink:0}}),
+          h("span",{style:{color:p.accent,fontSize:14,fontWeight:"bold",flex:1}},p.name),
+          h("span",{style:{color:"#666",fontSize:11}},p.subtitle)
+        ))
+      )
+    ),
+    // Header
+    h("div",{style:{width:gameW,maxWidth:"calc(100vw - 16px)",marginBottom:4}},
+      h("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:3}},
+        h("span",{style:{color:planet.accent,fontSize:18,fontWeight:"bold"}},planet.name),
+        h("span",{style:{color:"#777",fontSize:12}},planet.subtitle),
+        h("div",{style:{marginLeft:"auto",display:"flex",gap:2,alignItems:"center"}},
+          Array.from({length:MAX_LIVES}).map((_,i)=>h("span",{key:i,style:{fontSize:14,opacity:i<ui.lives?1:0.2,filter:i<ui.lives?"none":"grayscale(1)"}},i<ui.lives?"\u2764\uFE0F":"🖤"))
+        )
+      ),
+      ui.planet<PLANETS.length&&h(React.Fragment,null,
+        h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:2}},
+          h("span",{style:{color:"#aaa",fontSize:11,fontWeight:"bold"}},"ROCKET"),
+          h("span",{style:{color:planet.accent,fontSize:12,fontWeight:"bold"}},`${ui.progress}/${ui.total}`),
+          ui.rocketReady&&h("span",{style:{color:"#4f4",fontSize:12,fontWeight:"bold",animation:"blink 0.5s infinite"}},"READY TO LAUNCH!")
+        ),
+        h("div",{style:{width:"100%",height:8,background:"#222",borderRadius:2,marginBottom:3}},
+          h("div",{style:{width:`${(ui.progress/ui.total)*100}%`,height:"100%",background:ui.rocketReady?"#4f4":planet.accent,borderRadius:2,transition:"width 0.2s"}})
+        ),
+        h("div",{style:{display:"flex",gap:14}},
+          PLANETS[ui.planet]?.materials.map((mat,i)=>h("div",{key:i,style:{display:"flex",alignItems:"center",gap:4}},
+            h("div",{style:{width:8,height:8,background:mat.color,borderRadius:1}}),
+            h("span",{style:{color:mat.color,fontSize:11}},mat.name),
+            h("span",{style:{color:(ui.deposited?.[i]||0)>=mat.needed?"#4f4":"#999",fontSize:11,fontWeight:"bold"}},`${ui.deposited?.[i]||0}/${mat.needed}`)
+          ))
+        )
+      )
+    ),
+    // Canvas
+    h("div",{style:{position:"relative",border:`2px solid ${planet.accent}44`,imageRendering:"pixelated"}},
+      h("canvas",{ref:canvasRef,width:VIEW_W*TILE,height:VIEW_H*TILE,onClick:handleCanvasTap,style:{width:gameW,maxWidth:"calc(100vw - 16px)",imageRendering:"pixelated",display:"block",aspectRatio:`${VIEW_W}/${VIEW_H}`,touchAction:"none"}}),
+      ui.msg&&h("div",{style:{position:"absolute",top:10,left:"50%",transform:"translateX(-50%)",color:"#fff",fontSize:14,fontWeight:"bold",background:"#000c",padding:"5px 16px",borderRadius:3,whiteSpace:"nowrap",pointerEvents:"none"}},ui.msg)
+    ),
+    // Bottom bar
+    h("div",{style:{width:gameW,maxWidth:"calc(100vw - 16px)",marginTop:5,display:"flex",alignItems:"center",gap:8}},
+      h("div",{style:{flexShrink:0}},
+        h("div",{style:{color:"#888",fontSize:10,marginBottom:2,fontWeight:"bold"}},`BAG ${ui.inventory.length}/${INVENTORY_CAP}`),
+        h("div",{style:{display:"flex",gap:2}},
+          Array.from({length:INVENTORY_CAP}).map((_,i)=>{
+            const mi=ui.inventory[i], mat=mi!==undefined&&ui.planet<PLANETS.length?PLANETS[ui.planet].materials[mi]:null;
+            return h("div",{key:i,style:{width:26,height:26,background:mat?mat.color+"33":"#151515",border:`1px solid ${mat?mat.color+"88":"#2a2a2a"}`,borderRadius:2,display:"flex",alignItems:"center",justifyContent:"center"}},
+              mat&&h("div",{style:{width:10,height:10,background:mat.color,borderRadius:mat.icon==="gem"?"50%":1}}));
+          })
+        )
+      ),
+      h("div",{style:{flex:1}}),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,32px)",gridTemplateRows:"repeat(2,32px)",gap:2,flexShrink:0}},
+        h("div"), btn("\u25B2","w"), h("div"),
+        btn("\u25C4","a"), btn("\u25BC","s"), btn("\u25BA","d")
+      ),
+      h("button",{onPointerDown:()=>pressKey(" ",true),onPointerUp:()=>pressKey(" ",false),onPointerLeave:()=>pressKey(" ",false),style:{width:70,height:66,borderRadius:6,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"monospace",touchAction:"none",WebkitUserSelect:"none",userSelect:"none",flexShrink:0,background:ui.rocketReady?"#1a3a1a":"#1a1a1a",border:ui.rocketReady?"2px solid #4f4":"1px solid #333",color:ui.rocketReady?"#4f4":"#555",fontSize:11,fontWeight:"bold",animation:ui.rocketReady?"blink 1s infinite":"none"}},"LAUNCH")
+    ),
+    // Journey dots
+    h("div",{style:{display:"flex",gap:3,marginTop:5,alignItems:"center"}},
+      [...PLANETS,FINAL_PLANET].map((p,i)=>h("div",{key:i,style:{display:"flex",alignItems:"center",gap:2}},
+        h("div",{style:{width:i===ui.planet?10:5,height:i===ui.planet?10:5,borderRadius:"50%",background:i<ui.planet?"#4f4":i===ui.planet?p.accent||"#fff":"#333",border:i===ui.planet?`2px solid ${p.accent||"#fff"}`:"none",transition:"all 0.3s"},title:p.name}),
+        i<PLANETS.length&&h("div",{style:{width:6,height:1,background:i<ui.planet?"#4f4":"#333"}})
+      ))
+    )
+  );
+}
+
+ReactDOM.render(h(PlanetHopper), document.getElementById("root"));
+
+if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
+</script>
+</body>
+</html>

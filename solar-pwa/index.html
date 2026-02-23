@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Solar Pulse">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Solar Pulse</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    background: #000;
+    overflow: hidden;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+    font-family: monospace;
+    cursor: pointer;
+    height: 100%;
+    width: 100%;
+    position: fixed;
+    top: 0; left: 0;
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+  #hud {
+    position: fixed; top: 0; left: 0; right: 0;
+    padding: 12px 16px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    z-index: 10; pointer-events: none;
+  }
+  .hud-col { display: flex; flex-direction: column; gap: 2px; }
+  .hud-col.center { align-items: center; position: absolute; left: 50%; transform: translateX(-50%); }
+  .hud-col.right { align-items: flex-end; }
+  .hl { font-size: 9px; letter-spacing: 2px; color: rgba(255,200,100,0.5); text-transform: uppercase; }
+  .hv { font-size: 18px; font-weight: bold; color: #ffd080; text-shadow: 0 0 15px rgba(255,160,40,0.4); }
+  .hv.big { font-size: 26px; color: #fff; }
+  .hv.mult { font-size: 16px; color: #ffa040; }
+  .hv.mult.hot { color: #ff5030; }
+  .hv.mult.cool { color: #6090ff; }
+
+  #gbar-wrap {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    width: min(80vw, 380px); z-index: 10; pointer-events: none;
+  }
+  #glabel { text-align: center; font-size: 12px; letter-spacing: 3px; color: rgba(255,200,100,0.5); text-transform: uppercase; margin-bottom: 8px; }
+  #gbg { width: 100%; height: 12px; background: rgba(255,255,255,0.08); border-radius: 6px; overflow: hidden; }
+  #gfill { height: 100%; border-radius: 6px; transition: width 0.1s ease; }
+  #zones { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+  .zl { color: rgba(100,150,255,0.5); }
+  .zs { color: rgba(100,255,100,0.4); }
+  .zh { color: rgba(255,80,50,0.5); }
+
+  #msg {
+    position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+    font-size: 13px; color: #ffd080; text-align: center;
+    z-index: 20; pointer-events: none; opacity: 0; transition: opacity 0.4s;
+    background: rgba(0,0,0,0.7); border: 1px solid rgba(255,180,60,0.3);
+    padding: 8px 18px; border-radius: 6px;
+    text-shadow: 0 0 10px rgba(255,160,40,0.4);
+    max-width: 90vw; white-space: nowrap;
+  }
+  #msg.show { opacity: 1; }
+
+  #hint {
+    position: fixed; bottom: 85px; left: 50%; transform: translateX(-50%);
+    font-size: 13px; color: rgba(255,255,255,0.3); letter-spacing: 2px; text-transform: uppercase;
+    z-index: 10; pointer-events: none;
+  }
+
+  #gameover {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+    z-index: 100; display: none; justify-content: center; align-items: center;
+    flex-direction: column; gap: 16px;
+  }
+  #gameover.show { display: flex; }
+  #gameover h1 { font-size: 28px; color: #ffd080; text-shadow: 0 0 30px rgba(255,160,40,0.4); }
+  #gameover p { color: rgba(255,255,255,0.6); font-size: 13px; }
+  #gameover .fs { font-size: 20px; color: #fff; }
+  #rbtn {
+    font-size: 13px; padding: 12px 28px;
+    background: rgba(255,160,40,0.15); border: 1px solid rgba(255,160,40,0.4);
+    color: #ffd080; border-radius: 4px; cursor: pointer; pointer-events: all;
+    letter-spacing: 2px;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div class="hud-col"><span class="hl">Planets</span><span class="hv" id="pc">8</span></div>
+  <div class="hud-col center"><span class="hl">Score</span><span class="hv big" id="sc">0</span><span class="hl" style="margin-top:4px">Multiplier</span><span class="hv mult" id="mult">x1.0</span></div>
+  <div class="hud-col right"><span class="hl">Best</span><span class="hv" id="bs">0</span></div>
+</div>
+
+<div id="gbar-wrap">
+  <div id="glabel">Gravity — Risk / Reward</div>
+  <div id="gbg"><div id="gfill"></div></div>
+  <div id="zones"><span class="zl">x0.5</span><span class="zs">x1.0</span><span class="zh">x5.0</span></div>
+</div>
+
+<div id="hint">TAP TO PULSE GRAVITY — MORE RISK, MORE POINTS</div>
+<div id="msg"></div>
+
+<div id="gameover">
+  <h1>STAR COLLAPSED</h1>
+  <p>All planets lost</p>
+  <p class="fs" id="fsc"></p>
+  <button id="rbtn">REIGNITE</button>
+</div>
+
+<script>
+(function() {
+  var canvas = document.getElementById('c');
+  var ctx = canvas.getContext('2d');
+  var W, H, cx, cy;
+
+  function resize() {
+    W = canvas.width = canvas.clientWidth;
+    H = canvas.height = canvas.clientHeight;
+    cx = W / 2;
+    cy = H / 2;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  // State
+  var gravity = 0.5;
+  var score = 0;
+  var best = 0;
+  var alive = true;
+  var started = false;
+  var sunRadius = 20;
+  var tapFlash = 0;
+  var shakeMag = 0;
+  var scoreAccum = 0;
+  var timeAcc = 0;
+  var pulseRings = [];
+  var burnParts = [];
+  var driftParts = [];
+
+  // UFO system
+  var ufo = null;
+  var ufoTimer = 0;
+  var UFO_FIRST_DELAY = 20; // seconds before first UFO
+  var UFO_RESPAWN_MIN = 15;
+  var UFO_RESPAWN_MAX = 30;
+  var nextUfoTime = UFO_FIRST_DELAY;
+  var UFO_DRAIN = 0.003; // extra gravity decay per frame when UFO present
+  var ufoParts = [];
+
+  // Asteroid system
+  var asteroids = [];
+  var asteroidTimer = 0;
+  var ASTEROID_MIN_INTERVAL = 8;
+  var ASTEROID_MAX_INTERVAL = 20;
+  var nextAsteroidTime = 10 + Math.random() * 5;
+
+  // Asteroid belt (between Mars and Jupiter)
+  var BELT_ORBIT_BASE = 1.15; // between Mars 1.0 and Jupiter 1.30
+  var beltRocks = [];
+  var BELT_COUNT = 90;
+  var BELT_DRIFT_SHIELD = 0.6; // inner planets drift 60% slower
+
+  var DECAY = 0.003;
+  var TAP_BOOST = 0.06;
+  var DRIFT_ZONE = 0.2;
+  var DANGER_ZONE = 0.8;
+
+  var PDEFS = [
+    { name:'Mercury', color:'#b0a090', r:3,  ob:0.55, spd:2.8 },
+    { name:'Venus',   color:'#e8c870', r:5,  ob:0.70, spd:2.2 },
+    { name:'Earth',   color:'#4090e0', r:5.5,ob:0.85, spd:1.8, land:true },
+    { name:'Mars',    color:'#d06030', r:4,  ob:1.00, spd:1.5 },
+    { name:'Jupiter', color:'#d0a060', r:12, ob:1.30, spd:1.0, stripes:true },
+    { name:'Saturn',  color:'#e0c878', r:9,  ob:1.55, spd:0.8, rings:true },
+    { name:'Uranus',  color:'#70c0c8', r:7,  ob:1.75, spd:0.6 },
+    { name:'Neptune', color:'#4060d0', r:7,  ob:1.90, spd:0.5 }
+  ];
+
+  var planets = [];
+
+  function orbitR(base) {
+    return base * Math.min(W, H) * 0.23;
+  }
+
+  function initPlanets() {
+    planets = [];
+    for (var i = 0; i < PDEFS.length; i++) {
+      var d = PDEFS[i];
+      var a = Math.random() * Math.PI * 2;
+      var or = orbitR(d.ob);
+      planets.push({
+        name: d.name, color: d.color, r: d.r, ob: d.ob, spd: d.spd,
+        land: d.land || false, stripes: d.stripes || false, rings: d.rings || false,
+        angle: a,
+        orbitR: or,
+        baseOrbitR: or,
+        alive: true, burnT: 0, driftVel: 0, opacity: 1,
+        x: cx + Math.cos(a) * or,
+        y: cy + Math.sin(a) * or
+      });
+    }
+  }
+
+  function initBelt() {
+    beltRocks = [];
+    for (var i = 0; i < BELT_COUNT; i++) {
+      var angleSpread = (Math.random() - 0.5) * 0.12; // slight orbit variation
+      beltRocks.push({
+        angle: (i / BELT_COUNT) * Math.PI * 2 + (Math.random() - 0.5) * 0.3,
+        orbitMult: BELT_ORBIT_BASE + angleSpread,
+        size: 0.8 + Math.random() * 1.8,
+        speed: 0.4 + Math.random() * 0.15,
+        bright: 0.3 + Math.random() * 0.4
+      });
+    }
+  }
+
+  // Stars
+  var stars = [];
+  for (var i = 0; i < 250; i++) {
+    stars.push({
+      x: Math.random(), y: Math.random(),
+      s: Math.random() * 1.5 + 0.3,
+      b: Math.random() * 0.5 + 0.3,
+      tw: Math.random() * 6.28
+    });
+  }
+
+  // Input
+  function handleTap(e) {
+    e.preventDefault();
+    if (!alive) return;
+    if (!started) {
+      started = true;
+      document.getElementById('hint').style.display = 'none';
+    }
+
+    // Check if tapping the UFO
+    if (ufo && (ufo.phase === 'entering' || ufo.phase === 'orbiting')) {
+      var rect = canvas.getBoundingClientRect();
+      var tx = (e.clientX - rect.left) * (W / rect.width);
+      var ty = (e.clientY - rect.top) * (H / rect.height);
+      var dx = tx - ufo.x;
+      var dy = ty - ufo.y;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      var hitRadius = 35; // generous tap target
+
+      if (dist < hitRadius && ufo.hitCooldown <= 0) {
+        ufo.hp--;
+        ufo.hitCooldown = ufo.HIT_COOLDOWN_TIME;
+        ufo.hitFlash = 1.0;
+        shakeMag = 4;
+        spawnBurn(ufo.x, ufo.y, 10);
+
+        if (ufo.hp <= 0) {
+          spawnBurn(ufo.x, ufo.y, 30);
+          shakeMag = 10;
+          showMsg('UFO destroyed! Gravity restored.');
+          removeUfo();
+          return;
+        } else {
+          showMsg('UFO hit! (' + ufo.hp + ' more)');
+        }
+      }
+    }
+
+    gravity = Math.min(1.0, gravity + TAP_BOOST);
+    tapFlash = 1.0;
+    shakeMag = Math.min(shakeMag + 1.5, 8);
+    pulseRings.push({ r: sunRadius, op: 0.7 });
+  }
+
+  canvas.addEventListener('pointerdown', handleTap);
+  document.getElementById('rbtn').addEventListener('click', restart);
+
+  function spawnBurn(x, y, n) {
+    for (var i = 0; i < n; i++) {
+      var a = Math.random() * 6.28;
+      var sp = Math.random() * 3 + 1;
+      burnParts.push({
+        x:x, y:y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp,
+        life:1, dec:0.01+Math.random()*0.02, sz:Math.random()*3+1
+      });
+    }
+  }
+
+  function spawnDrift(x, y, a, n) {
+    for (var i = 0; i < n; i++) {
+      var ang = a + (Math.random()-0.5)*0.5;
+      var sp = Math.random() * 2 + 1;
+      driftParts.push({
+        x:x, y:y, vx:Math.cos(ang)*sp, vy:Math.sin(ang)*sp,
+        life:1, dec:0.005+Math.random()*0.01, sz:Math.random()*2+1
+      });
+    }
+  }
+
+  var msgTimer = null;
+  function showMsg(t) {
+    var el = document.getElementById('msg');
+    el.textContent = t;
+    el.classList.add('show');
+    clearTimeout(msgTimer);
+    msgTimer = setTimeout(function() { el.classList.remove('show'); }, 2000);
+  }
+
+  // ── UFO Functions ──
+  function spawnUfo() {
+    // Pick a random edge to fly in from
+    var edge = Math.floor(Math.random() * 4);
+    var sx, sy, angle;
+    if (edge === 0) { sx = -30; sy = Math.random() * H; angle = 0; }
+    else if (edge === 1) { sx = W + 30; sy = Math.random() * H; angle = Math.PI; }
+    else if (edge === 2) { sx = Math.random() * W; sy = -30; angle = Math.PI * 0.5; }
+    else { sx = Math.random() * W; sy = H + 30; angle = -Math.PI * 0.5; }
+
+    var lifespan = 20 + Math.random() * 15; // 20-35 seconds
+    var willBurn = Math.random() < 0.4; // 40% chance gets sucked into sun
+
+    ufo = {
+      x: sx, y: sy,
+      angle: Math.atan2(cy - sy, cx - sx), // aim toward center initially
+      orbitAngle: Math.atan2(sy - cy, sx - cx),
+      orbitR: Math.min(W, H) * 0.3, // orbit distance from sun
+      targetOrbitR: Math.min(W, H) * (0.15 + Math.random() * 0.2),
+      speed: 1.5 + Math.random(),
+      lifespan: lifespan,
+      age: 0,
+      phase: 'entering', // entering, orbiting, leaving, burning
+      willBurn: willBurn,
+      opacity: 1,
+      beamFlicker: 0,
+      hp: 3,
+      hitCooldown: 0,
+      HIT_COOLDOWN_TIME: 2.0, // seconds between hits
+      hitFlash: 0
+    };
+    showMsg('UFO INCOMING — Gravity drain!');
+  }
+
+  function updateUfo(dt) {
+    var u = ufo;
+    u.age += dt;
+    u.beamFlicker = 0.6 + Math.sin(timeAcc * 8) * 0.3;
+    u.hitCooldown = Math.max(0, u.hitCooldown - dt);
+    u.hitFlash *= 0.9;
+
+    if (u.phase === 'entering') {
+      // Fly toward orbit position
+      var tx = cx + Math.cos(u.orbitAngle) * u.targetOrbitR;
+      var ty = cy + Math.sin(u.orbitAngle) * u.targetOrbitR;
+      var dx = tx - u.x;
+      var dy = ty - u.y;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 5) {
+        u.phase = 'orbiting';
+        u.orbitR = u.targetOrbitR;
+      } else {
+        var spd = Math.min(dist, 200 * dt * 60) * 0.08;
+        u.x += (dx / dist) * spd * dt * 60;
+        u.y += (dy / dist) * spd * dt * 60;
+      }
+    } else if (u.phase === 'orbiting') {
+      // Circle the sun
+      u.orbitAngle += u.speed * 0.008 * dt * 60;
+      u.x = cx + Math.cos(u.orbitAngle) * u.orbitR;
+      u.y = cy + Math.sin(u.orbitAngle) * u.orbitR;
+
+      // Check if time to leave
+      if (u.age >= u.lifespan) {
+        if (u.willBurn) {
+          u.phase = 'burning';
+          showMsg('UFO pulled into the sun!');
+        } else {
+          u.phase = 'leaving';
+          u.leaveAngle = u.orbitAngle;
+          showMsg('UFO departing...');
+        }
+      }
+    } else if (u.phase === 'burning') {
+      // Spiral into the sun
+      u.orbitR -= 2.5 * dt * 60;
+      u.orbitAngle += u.speed * 0.02 * dt * 60;
+      u.x = cx + Math.cos(u.orbitAngle) * Math.max(0, u.orbitR);
+      u.y = cy + Math.sin(u.orbitAngle) * Math.max(0, u.orbitR);
+      u.opacity = Math.max(0, u.orbitR / u.targetOrbitR);
+
+      if (u.orbitR <= sunRadius) {
+        // UFO destroyed
+        spawnBurn(u.x, u.y, 25);
+        shakeMag = 8;
+        removeUfo();
+        showMsg('UFO destroyed! Gravity restored.');
+        return;
+      }
+    } else if (u.phase === 'leaving') {
+      // Fly away from sun
+      var la = u.leaveAngle;
+      u.x += Math.cos(la) * 3 * dt * 60;
+      u.y += Math.sin(la) * 3 * dt * 60;
+      u.opacity -= 0.01 * dt * 60;
+
+      if (u.x < -50 || u.x > W + 50 || u.y < -50 || u.y > H + 50 || u.opacity <= 0) {
+        removeUfo();
+        showMsg('UFO departed. Gravity restored.');
+        return;
+      }
+    }
+
+    // Spawn drain particles (beam effect toward sun)
+    if (u.phase === 'orbiting' || u.phase === 'entering') {
+      if (Math.random() < 0.3) {
+        var pa = Math.atan2(cy - u.y, cx - u.x);
+        ufoParts.push({
+          x: u.x, y: u.y,
+          vx: Math.cos(pa) * (1 + Math.random()),
+          vy: Math.sin(pa) * (1 + Math.random()),
+          life: 1, dec: 0.02 + Math.random() * 0.01, sz: 1 + Math.random()
+        });
+      }
+    }
+
+    // Update UFO particles
+    for (var i = ufoParts.length - 1; i >= 0; i--) {
+      var p = ufoParts[i];
+      p.x += p.vx * dt * 60;
+      p.y += p.vy * dt * 60;
+      p.life -= p.dec * dt * 60;
+      if (p.life <= 0) ufoParts.splice(i, 1);
+    }
+  }
+
+  function removeUfo() {
+    ufo = null;
+    ufoParts = [];
+    ufoTimer = 0;
+    nextUfoTime = UFO_RESPAWN_MIN + Math.random() * (UFO_RESPAWN_MAX - UFO_RESPAWN_MIN);
+  }
+
+  function drawUfo(u) {
+    ctx.save();
+    ctx.globalAlpha = u.opacity;
+
+    // Tractor beam toward sun (drain visual)
+    if (u.phase === 'orbiting' || u.phase === 'entering') {
+      ctx.save();
+      ctx.globalAlpha = u.beamFlicker * 0.15 * u.opacity;
+      ctx.beginPath();
+      ctx.moveTo(u.x - 8, u.y);
+      ctx.lineTo(u.x + 8, u.y);
+      ctx.lineTo(cx + 4, cy);
+      ctx.lineTo(cx - 4, cy);
+      ctx.closePath();
+      ctx.fillStyle = '#40ff90';
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // UFO drain particles
+    for (var i = 0; i < ufoParts.length; i++) {
+      var p = ufoParts[i];
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.sz * p.life, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(80,255,150,' + (p.life * 0.6) + ')';
+      ctx.fill();
+    }
+
+    // Saucer body - dome
+    ctx.fillStyle = 'rgba(150,200,180,0.7)';
+    ctx.beginPath();
+    ctx.ellipse(u.x, u.y - 3, 6, 5, 0, Math.PI, 0);
+    ctx.fill();
+
+    // Saucer body - disc
+    ctx.fillStyle = '#889898';
+    ctx.beginPath();
+    ctx.ellipse(u.x, u.y, 12, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Saucer highlight
+    ctx.fillStyle = 'rgba(200,255,220,0.5)';
+    ctx.beginPath();
+    ctx.ellipse(u.x, u.y - 1, 8, 2, 0, Math.PI, 0);
+    ctx.fill();
+
+    // Lights
+    var lightCount = 4;
+    for (var i = 0; i < lightCount; i++) {
+      var la = (i / lightCount) * Math.PI * 2 + timeAcc * 3;
+      var lx = u.x + Math.cos(la) * 9;
+      var ly = u.y + Math.sin(la) * 2.5;
+      ctx.beginPath();
+      ctx.arc(lx, ly, 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(80,255,150,0.9)' : 'rgba(255,80,80,0.9)';
+      ctx.fill();
+    }
+
+    // Green glow around UFO
+    var gg = ctx.createRadialGradient(u.x, u.y, 5, u.x, u.y, 30);
+    gg.addColorStop(0, 'rgba(80,255,150,0.15)');
+    gg.addColorStop(1, 'rgba(80,255,150,0)');
+    ctx.fillStyle = gg;
+    ctx.beginPath();
+    ctx.arc(u.x, u.y, 30, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Hit flash overlay
+    if (u.hitFlash > 0.05) {
+      ctx.beginPath();
+      ctx.arc(u.x, u.y, 18, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,' + (u.hitFlash * 0.6) + ')';
+      ctx.fill();
+    }
+
+    // HP pips above UFO
+    var pipY = u.y - 16;
+    var pipSpacing = 8;
+    var pipStartX = u.x - ((3 - 1) * pipSpacing) / 2;
+    for (var i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.arc(pipStartX + i * pipSpacing, pipY, 2.5, 0, Math.PI * 2);
+      if (i < u.hp) {
+        ctx.fillStyle = u.hitCooldown > 0 ? 'rgba(255,100,100,0.6)' : 'rgba(80,255,150,0.8)';
+      } else {
+        ctx.fillStyle = 'rgba(100,100,100,0.3)';
+      }
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  // ── Asteroid Functions ──
+  function spawnAsteroid() {
+    // Pick random edge
+    var edge = Math.floor(Math.random() * 4);
+    var sx, sy;
+    if (edge === 0) { sx = -20; sy = Math.random() * H; }
+    else if (edge === 1) { sx = W + 20; sy = Math.random() * H; }
+    else if (edge === 2) { sx = Math.random() * W; sy = -20; }
+    else { sx = Math.random() * W; sy = H + 20; }
+
+    // Decide if it aims at the sun or flies through
+    var hitsSun = Math.random() < 0.35; // 35% chance to hit sun
+    var tx, ty;
+    if (hitsSun) {
+      // Aim at center with slight offset
+      tx = cx + (Math.random() - 0.5) * 20;
+      ty = cy + (Math.random() - 0.5) * 20;
+    } else {
+      // Aim at a random point across the screen
+      var ex = Math.random() * W;
+      var ey = Math.random() * H;
+      // Make sure it crosses through the visible area
+      tx = sx + (ex - sx) * 2;
+      ty = sy + (ey - sy) * 2;
+    }
+
+    var angle = Math.atan2(ty - sy, tx - sx);
+    var speed = 1.5 + Math.random() * 2;
+    var size = 3 + Math.random() * 5;
+
+    // Generate jagged shape vertices
+    var verts = [];
+    var numVerts = 6 + Math.floor(Math.random() * 4);
+    for (var i = 0; i < numVerts; i++) {
+      var a = (i / numVerts) * Math.PI * 2;
+      var r = size * (0.6 + Math.random() * 0.4);
+      verts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+    }
+
+    asteroids.push({
+      x: sx, y: sy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      size: size,
+      hitsSun: hitsSun,
+      rot: Math.random() * 6.28,
+      rotSpd: (Math.random() - 0.5) * 0.05,
+      verts: verts,
+      alive: true
+    });
+  }
+
+  function updateAsteroids(dt) {
+    asteroidTimer += dt;
+    if (asteroidTimer >= nextAsteroidTime) {
+      spawnAsteroid();
+      asteroidTimer = 0;
+      nextAsteroidTime = ASTEROID_MIN_INTERVAL + Math.random() * (ASTEROID_MAX_INTERVAL - ASTEROID_MIN_INTERVAL);
+    }
+
+    for (var i = asteroids.length - 1; i >= 0; i--) {
+      var a = asteroids[i];
+      if (!a.alive) { asteroids.splice(i, 1); continue; }
+
+      a.x += a.vx * dt * 60;
+      a.y += a.vy * dt * 60;
+      a.rot += a.rotSpd * dt * 60;
+
+      // Check sun collision (use visual corona size, not just core)
+      var dx = a.x - cx;
+      var dy = a.y - cy;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      var sunHitR = sunRadius * 1.5; // corona is bigger than core
+      if (a.hitsSun && dist < sunHitR + a.size) {
+        // Impact! Cut gravity by 30-60%
+        var cut = 0.3 + Math.random() * 0.3;
+        gravity *= (1 - cut);
+        spawnBurn(a.x, a.y, 20);
+        shakeMag = 10;
+        showMsg('ASTEROID IMPACT! Gravity -' + Math.round(cut * 100) + '%');
+        a.alive = false;
+        continue;
+      }
+
+      // Remove if off screen
+      if (a.x < -80 || a.x > W + 80 || a.y < -80 || a.y > H + 80) {
+        asteroids.splice(i, 1);
+      }
+    }
+  }
+
+  function drawAsteroid(a) {
+    ctx.save();
+    ctx.translate(a.x, a.y);
+    ctx.rotate(a.rot);
+
+    // Body
+    ctx.beginPath();
+    ctx.moveTo(a.verts[0].x, a.verts[0].y);
+    for (var i = 1; i < a.verts.length; i++) {
+      ctx.lineTo(a.verts[i].x, a.verts[i].y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = '#807060';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(160,140,120,0.6)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Highlight
+    ctx.beginPath();
+    ctx.arc(-a.size * 0.2, -a.size * 0.2, a.size * 0.3, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(180,160,140,0.4)';
+    ctx.fill();
+
+    ctx.restore();
+
+    // Glow if heading to sun
+    if (a.hitsSun) {
+      var dx = cx - a.x;
+      var dy = cy - a.y;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      var maxDist = Math.max(W, H) * 0.5;
+      if (dist < maxDist) {
+        var heat = 1 - (dist / maxDist);
+        var hg = ctx.createRadialGradient(a.x, a.y, a.size * 0.5, a.x, a.y, a.size * 2.5);
+        hg.addColorStop(0, 'rgba(255,120,30,' + (heat * 0.4) + ')');
+        hg.addColorStop(1, 'rgba(255,60,10,0)');
+        ctx.fillStyle = hg;
+        ctx.beginPath();
+        ctx.arc(a.x, a.y, a.size * 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  // ── Asteroid Belt ──
+  function updateBelt(dt) {
+    var sm = 0.5 + gravity * 1.0;
+    for (var i = 0; i < beltRocks.length; i++) {
+      var b = beltRocks[i];
+      b.angle += b.speed * 0.005 * sm * dt * 60;
+    }
+  }
+
+  function drawBelt() {
+    var beltR = orbitR(BELT_ORBIT_BASE);
+
+    // Faint orbit band
+    ctx.beginPath();
+    ctx.arc(cx, cy, beltR, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(150,130,100,0.06)';
+    ctx.lineWidth = orbitR(0.12); // belt width
+    ctx.stroke();
+    ctx.lineWidth = 1;
+
+    // Individual rocks
+    for (var i = 0; i < beltRocks.length; i++) {
+      var b = beltRocks[i];
+      var r = orbitR(b.orbitMult);
+      var bx = cx + Math.cos(b.angle) * r;
+      var by = cy + Math.sin(b.angle) * r;
+      ctx.fillStyle = 'rgba(180,160,130,' + b.bright + ')';
+      ctx.beginPath();
+      ctx.arc(bx, by, b.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function update(dt) {
+    if (!started || !alive) return;
+
+    // UFO timer & spawning
+    ufoTimer += dt;
+    if (!ufo && ufoTimer >= nextUfoTime) {
+      spawnUfo();
+    }
+    if (ufo) {
+      updateUfo(dt);
+    }
+
+    // Extra gravity drain when UFO is present
+    var totalDecay = DECAY + (ufo ? UFO_DRAIN : 0);
+    gravity = Math.max(0, gravity - totalDecay * dt * 60);
+    tapFlash *= 0.92;
+    shakeMag *= 0.9;
+
+    for (var i = pulseRings.length - 1; i >= 0; i--) {
+      pulseRings[i].r += 3 * dt * 60;
+      pulseRings[i].op -= 0.015 * dt * 60;
+      if (pulseRings[i].op <= 0) pulseRings.splice(i, 1);
+    }
+
+    var targetR = Math.min(W, H) * (0.025 + gravity * 0.04);
+    sunRadius += (targetR - sunRadius) * 0.1;
+
+    var aliveCount = 0;
+
+    for (var i = 0; i < planets.length; i++) {
+      var p = planets[i];
+      if (!p.alive) continue;
+      aliveCount++;
+
+      p.baseOrbitR = orbitR(p.ob);
+
+      if (gravity < DRIFT_ZONE) {
+        var driftMult = 1;
+        // Belt shields inner planets from drifting
+        if (p.ob < BELT_ORBIT_BASE) {
+          driftMult = 1 - BELT_DRIFT_SHIELD; // 40% of normal drift
+        }
+        p.driftVel += (DRIFT_ZONE - gravity) * 0.15 * dt * 60 * driftMult;
+        p.orbitR += p.driftVel * dt * 60;
+      } else if (gravity > DANGER_ZONE) {
+        var pull = (gravity - DANGER_ZONE) / (1 - DANGER_ZONE);
+        p.orbitR -= pull * 1.5 * dt * 60 * (1 / p.ob);
+        p.orbitR = Math.max(0, p.orbitR);
+        p.driftVel = Math.max(0, p.driftVel - 0.1 * dt * 60);
+      } else {
+        p.orbitR += (p.baseOrbitR - p.orbitR) * 0.02 * dt * 60;
+        p.driftVel = Math.max(0, p.driftVel - 0.05 * dt * 60);
+      }
+
+      var ratio = p.baseOrbitR / Math.max(p.orbitR, 10);
+      var sm = 0.5 + gravity * 1.0;
+      p.angle += p.spd * 0.01 * sm * ratio * dt * 60;
+
+      p.x = cx + Math.cos(p.angle) * p.orbitR;
+      p.y = cy + Math.sin(p.angle) * p.orbitR;
+
+      if (p.orbitR < sunRadius + p.r + 5) {
+        p.burnT += dt * 60;
+        if (p.burnT > 30) {
+          p.alive = false;
+          spawnBurn(p.x, p.y, 35);
+          showMsg(p.name + ' burned up!');
+          shakeMag = 12;
+        }
+      } else {
+        p.burnT = Math.max(0, p.burnT - 0.5 * dt * 60);
+      }
+
+      var maxD = Math.max(W, H) * 0.7;
+      if (p.orbitR > maxD) {
+        p.opacity -= 0.02 * dt * 60;
+        if (p.opacity <= 0) {
+          p.alive = false;
+          var da = Math.atan2(p.y - cy, p.x - cx);
+          spawnDrift(p.x, p.y, da, 15);
+          showMsg(p.name + ' drifted away...');
+        }
+      } else {
+        p.opacity = Math.min(1, p.opacity + 0.05 * dt * 60);
+      }
+    }
+
+    // Score with gravity multiplier
+    // Low gravity = 0.5x, mid = 1x, high = up to 5x
+    var mult;
+    if (gravity < DRIFT_ZONE) {
+      mult = 0.5;
+    } else if (gravity < 0.5) {
+      mult = 0.5 + (gravity - DRIFT_ZONE) / (0.5 - DRIFT_ZONE) * 0.5;
+    } else if (gravity < DANGER_ZONE) {
+      mult = 1.0 + (gravity - 0.5) / (DANGER_ZONE - 0.5) * 2.0;
+    } else {
+      mult = 3.0 + (gravity - DANGER_ZONE) / (1.0 - DANGER_ZONE) * 2.0;
+    }
+    mult = Math.round(mult * 10) / 10;
+
+    scoreAccum += aliveCount * dt * mult;
+    score = Math.floor(scoreAccum);
+
+    // Update multiplier display
+    var multEl = document.getElementById('mult');
+    multEl.textContent = 'x' + mult.toFixed(1);
+    multEl.className = 'hv mult';
+    if (gravity > DANGER_ZONE) {
+      multEl.className = 'hv mult hot';
+    } else if (gravity < DRIFT_ZONE) {
+      multEl.className = 'hv mult cool';
+    }
+
+    updateParts(burnParts, dt);
+    updateParts(driftParts, dt);
+    updateAsteroids(dt);
+    updateBelt(dt);
+
+    document.getElementById('pc').textContent = aliveCount;
+    document.getElementById('sc').textContent = score;
+
+    var fill = document.getElementById('gfill');
+    fill.style.width = (gravity * 100) + '%';
+    if (gravity < DRIFT_ZONE) {
+      fill.style.background = 'linear-gradient(90deg,#4080ff,#6090ff)';
+    } else if (gravity > DANGER_ZONE) {
+      fill.style.background = 'linear-gradient(90deg,#ff8030,#ff3020)';
+    } else {
+      fill.style.background = 'linear-gradient(90deg,#ff9030,#ffc040)';
+    }
+
+    if (aliveCount === 0) {
+      alive = false;
+      if (score > best) best = score;
+      document.getElementById('bs').textContent = best;
+      document.getElementById('fsc').textContent = 'Score: ' + score;
+      setTimeout(function() {
+        document.getElementById('gameover').classList.add('show');
+      }, 1000);
+    }
+  }
+
+  function updateParts(arr, dt) {
+    for (var i = arr.length - 1; i >= 0; i--) {
+      var p = arr[i];
+      p.x += p.vx * dt * 60;
+      p.y += p.vy * dt * 60;
+      p.life -= p.dec * dt * 60;
+      if (p.life <= 0) arr.splice(i, 1);
+    }
+  }
+
+  function draw(dt) {
+    timeAcc += dt;
+    ctx.clearRect(0, 0, W, H);
+
+    var sx = (Math.random() - 0.5) * shakeMag;
+    var sy = (Math.random() - 0.5) * shakeMag;
+    ctx.save();
+    ctx.translate(sx, sy);
+
+    var bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.6);
+    bg.addColorStop(0, '#1e0f28');
+    bg.addColorStop(0.4, '#080514');
+    bg.addColorStop(1, '#020108');
+    ctx.fillStyle = bg;
+    ctx.fillRect(-20, -20, W + 40, H + 40);
+
+    for (var i = 0; i < stars.length; i++) {
+      var s = stars[i];
+      var tw = 0.5 + 0.5 * Math.sin(timeAcc * 2 + s.tw);
+      ctx.globalAlpha = s.b * tw;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(s.x * W, s.y * H, s.s, s.s);
+    }
+    ctx.globalAlpha = 1;
+
+    for (var i = 0; i < planets.length; i++) {
+      var p = planets[i];
+      if (!p.alive || p.orbitR < 1) continue;
+      ctx.beginPath();
+      ctx.arc(cx, cy, p.orbitR, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,255,255,' + (0.04 * p.opacity) + ')';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    drawSun();
+
+    // Draw asteroid belt
+    drawBelt();
+
+    for (var i = 0; i < pulseRings.length; i++) {
+      var pr = pulseRings[i];
+      ctx.beginPath();
+      ctx.arc(cx, cy, pr.r, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,180,60,' + (pr.op * 0.4) + ')';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    for (var i = 0; i < planets.length; i++) {
+      if (planets[i].alive && planets[i].orbitR > 1) drawPlanet(planets[i]);
+    }
+
+    // Draw UFO
+    if (ufo) drawUfo(ufo);
+
+    // Draw Asteroids
+    for (var i = 0; i < asteroids.length; i++) {
+      if (asteroids[i].alive) drawAsteroid(asteroids[i]);
+    }
+
+    for (var i = 0; i < burnParts.length; i++) {
+      var bp = burnParts[i];
+      ctx.beginPath();
+      ctx.arc(bp.x, bp.y, bp.sz * bp.life, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,200,50,' + bp.life + ')';
+      ctx.fill();
+    }
+
+    for (var i = 0; i < driftParts.length; i++) {
+      var dp = driftParts[i];
+      ctx.beginPath();
+      ctx.arc(dp.x, dp.y, dp.sz * dp.life, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(150,180,255,' + (dp.life * 0.7) + ')';
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  function drawSun() {
+    var r = sunRadius;
+    var pr = r + Math.sin(timeAcc * 3) * 2;
+    var intensity = 0.1 + gravity * 0.15 + tapFlash * 0.2;
+
+    var c1 = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r * 5);
+    c1.addColorStop(0, 'rgba(255,180,40,' + intensity + ')');
+    c1.addColorStop(0.3, 'rgba(255,100,20,' + (intensity * 0.5) + ')');
+    c1.addColorStop(1, 'rgba(255,50,10,0)');
+    ctx.fillStyle = c1;
+    ctx.fillRect(cx - r * 5, cy - r * 5, r * 10, r * 10);
+
+    var c2 = ctx.createRadialGradient(cx, cy, 0, cx, cy, pr * 1.5);
+    c2.addColorStop(0, '#fff8e0');
+    c2.addColorStop(0.3, '#ffcc40');
+    c2.addColorStop(0.7, '#ff8020');
+    c2.addColorStop(1, 'rgba(255,60,10,0)');
+    ctx.fillStyle = c2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, pr * 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    var c3 = ctx.createRadialGradient(cx, cy, 0, cx, cy, pr);
+    c3.addColorStop(0, '#ffffff');
+    c3.addColorStop(0.5, '#ffee88');
+    c3.addColorStop(1, '#ffaa30');
+    ctx.fillStyle = c3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, pr, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (tapFlash > 0.01) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, pr * (1 + tapFlash * 0.5), 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,200,' + (tapFlash * 0.4) + ')';
+      ctx.fill();
+    }
+  }
+
+  function drawPlanet(p) {
+    ctx.save();
+    ctx.globalAlpha = p.opacity;
+
+    if (p.burnT > 0) {
+      var bg = ctx.createRadialGradient(p.x, p.y, p.r, p.x, p.y, p.r * 3);
+      bg.addColorStop(0, 'rgba(255,100,20,' + Math.min(1, p.burnT / 60) + ')');
+      bg.addColorStop(1, 'rgba(255,50,10,0)');
+      ctx.fillStyle = bg;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (p.rings) {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(0.3);
+      ctx.scale(1, 0.3);
+      ctx.beginPath();
+      ctx.arc(0, 0, p.r * 2.2, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(210,190,140,0.5)';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    var rc = parseInt(p.color.slice(1, 3), 16);
+    var gc = parseInt(p.color.slice(3, 5), 16);
+    var bc = parseInt(p.color.slice(5, 7), 16);
+    var light = 'rgb(' + Math.min(255, rc + 40) + ',' + Math.min(255, gc + 40) + ',' + Math.min(255, bc + 40) + ')';
+    var gr = ctx.createRadialGradient(p.x - p.r * 0.3, p.y - p.r * 0.3, 0, p.x, p.y, p.r);
+    gr.addColorStop(0, light);
+    gr.addColorStop(1, p.color);
+    ctx.fillStyle = gr;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (p.stripes) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.fillStyle = 'rgba(180,120,50,0.3)';
+      for (var s = -3; s <= 3; s++) {
+        ctx.fillRect(p.x - p.r, p.y + s * 3.5 - 1, p.r * 2, 2);
+      }
+      ctx.restore();
+    }
+
+    if (p.land) {
+      ctx.fillStyle = 'rgba(60,160,80,0.4)';
+      ctx.beginPath();
+      ctx.arc(p.x + 1, p.y - 1, p.r * 0.45, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  var lastTime = 0;
+  function loop(ts) {
+    var dt = lastTime ? Math.min((ts - lastTime) / 1000, 0.05) : 0.016;
+    lastTime = ts;
+    try {
+      update(dt);
+      draw(dt);
+    } catch(e) {
+      // resilient - skip frame on error
+    }
+    requestAnimationFrame(loop);
+  }
+
+  function restart() {
+    document.getElementById('gameover').classList.remove('show');
+    gravity = 0.5;
+    score = 0;
+    scoreAccum = 0;
+    alive = true;
+    started = false;
+    tapFlash = 0;
+    shakeMag = 0;
+    burnParts = [];
+    driftParts = [];
+    pulseRings = [];
+    ufo = null;
+    ufoParts = [];
+    ufoTimer = 0;
+    nextUfoTime = UFO_FIRST_DELAY;
+    asteroids = [];
+    asteroidTimer = 0;
+    nextAsteroidTime = 10 + Math.random() * 5;
+    initBelt();
+    document.getElementById('hint').style.display = '';
+    document.getElementById('bs').textContent = best;
+    initPlanets();
+  }
+
+  initPlanets();
+  initBelt();
+  requestAnimationFrame(loop);
+})();
+</script>
+<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch(()=>{});}</script>
+</body>
+</html>
