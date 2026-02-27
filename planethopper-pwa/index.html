@@ -9,6 +9,34 @@
 <meta name="theme-color" content="#000000">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
+<script>
+// Generate 16x16 pixel art favicon (rocket)
+(function(){
+  var _=0,s=16,c=document.createElement("canvas");
+  c.width=s;c.height=s;var x=c.getContext("2d");
+  var d=[
+  [_,_,_,_,_,_,_,"#ff4444",_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,"#ff4444","#ff6644","#ff4444",_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,"#ccccdd","#eeeef8","#ccccdd",_,_,_,_,_,_,_],
+  [_,_,_,_,_,"#ccccdd","#dddde8","#eeeef8","#dddde8","#ccccdd",_,_,_,_,_,_],
+  [_,_,_,_,_,"#ccccdd","#dddde8","#eeeef8","#dddde8","#ccccdd",_,_,_,_,_,_],
+  [_,_,_,_,_,"#bbbbcc","#ccccdd","#2244aa","#ccccdd","#bbbbcc",_,_,_,_,_,_],
+  [_,_,_,_,_,"#bbbbcc","#ccccdd","#2244aa","#ccccdd","#bbbbcc",_,_,_,_,_,_],
+  [_,_,_,_,"#aaaabc","#bbbbcc","#ccccdd","#dddde8","#ccccdd","#bbbbcc","#aaaabc",_,_,_,_,_],
+  [_,_,_,_,"#9999ac","#aaaabc","#bbbbcc","#ccccdd","#bbbbcc","#aaaabc","#9999ac",_,_,_,_,_],
+  [_,_,_,"#8888a0","#9999ac","#aaaabc","#bbbbcc","#ccccdd","#bbbbcc","#aaaabc","#9999ac","#8888a0",_,_,_,_],
+  [_,_,_,"#777790","#8888a0","#9999ac","#aaaabc","#bbbbcc","#aaaabc","#9999ac","#8888a0","#777790",_,_,_,_],
+  [_,_,_,_,"#666680","#777790",_,"#8888a0",_,"#777790","#666680",_,_,_,_,_],
+  [_,_,_,_,_,"#ff6600","#ffaa00","#ff6600","#ffaa00","#ff6600",_,_,_,_,_,_],
+  [_,_,_,_,_,"#ff4400","#ff6600","#ffcc00","#ff6600","#ff4400",_,_,_,_,_,_],
+  [_,_,_,_,_,_,"#ff4400","#ff6600","#ff4400",_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,"#ff2200",_,_,_,_,_,_,_,_]
+  ];
+  for(var y=0;y<s;y++)for(var i=0;i<s;i++){if(d[y][i]){x.fillStyle=d[y][i];x.fillRect(i,y,1,1);}}
+  var l=document.createElement("link");l.rel="icon";l.type="image/png";
+  l.href=c.toDataURL("image/png");document.head.appendChild(l);
+})();
+</script>
 <title>Planet Hopper</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box;
