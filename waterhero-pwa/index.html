@@ -1,0 +1,1735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Water Hero" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#2C8C99" />
+<meta name="description" content="Build pumps, deliver water, help villages. A game about clean water access." />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+<link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<title>Water Hero</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F5E6D3;
+    --sand-dark: #E8D4B8;
+    --grass: #9CB071;
+    --grass-dark: #7A8F58;
+    --water: #2C8C99;
+    --water-light: #4FBACE;
+    --sky: #BDE3EC;
+    --terracotta: #E07856;
+    --peach: #F4A261;
+    --sun: #F6C15A;
+    --brown: #3D2817;
+    --brown-soft: #6B4A2E;
+    --cream: #FFF7EA;
+    --danger: #C94F3A;
+    --happy: #7FB069;
+  }
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: manipulation;
+    font-family: 'Nunito', sans-serif;
+    background: var(--sand);
+    color: var(--brown);
+  }
+
+  #app {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    background:
+      radial-gradient(ellipse at top, var(--sky) 0%, var(--sand) 60%);
+  }
+
+  /* ------ HUD ------ */
+  .hud {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    gap: 10px;
+    background: linear-gradient(180deg, rgba(255,247,234,0.95), rgba(255,247,234,0.75));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-bottom: 3px solid var(--brown);
+    box-shadow: 0 4px 0 rgba(61,40,23,0.08);
+    z-index: 10;
+    flex-shrink: 0;
+  }
+
+  .hud-stat {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--cream);
+    border: 3px solid var(--brown);
+    border-radius: 14px;
+    padding: 6px 12px;
+    font-family: 'Lilita One', sans-serif;
+    font-size: 20px;
+    letter-spacing: 0.5px;
+    box-shadow: 0 3px 0 var(--brown);
+    min-width: 80px;
+    justify-content: center;
+  }
+
+  .hud-stat .icon {
+    font-size: 22px;
+    line-height: 1;
+  }
+
+  .hud-stat.coins { color: var(--brown); }
+  .hud-stat.rep { color: var(--terracotta); }
+  .hud-stat.helped { color: var(--water); }
+
+  .hud-title {
+    font-family: 'Lilita One', sans-serif;
+    font-size: 22px;
+    color: var(--water);
+    text-shadow: 2px 2px 0 var(--cream);
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* ------ WORLD ------ */
+  .world-wrap {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+
+  #world {
+    width: 100%;
+    height: 100%;
+    display: block;
+    cursor: pointer;
+  }
+
+  .world-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .floater {
+    position: absolute;
+    font-family: 'Lilita One', sans-serif;
+    font-size: 22px;
+    pointer-events: none;
+    animation: floatUp 1.2s ease-out forwards;
+    text-shadow: 2px 2px 0 rgba(255,255,255,0.8);
+    white-space: nowrap;
+  }
+
+  @keyframes floatUp {
+    0% { transform: translate(-50%, 0) scale(0.7); opacity: 0; }
+    15% { transform: translate(-50%, -10px) scale(1.2); opacity: 1; }
+    80% { transform: translate(-50%, -60px) scale(1); opacity: 1; }
+    100% { transform: translate(-50%, -90px) scale(0.9); opacity: 0; }
+  }
+
+  .floater.coin { color: #D49E18; }
+  .floater.minus { color: var(--danger); }
+  .floater.water { color: var(--water); }
+  .floater.happy { color: var(--happy); }
+
+  .toast {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--brown);
+    color: var(--cream);
+    padding: 10px 18px;
+    border-radius: 14px;
+    font-weight: 800;
+    font-size: 14px;
+    box-shadow: 0 4px 0 rgba(0,0,0,0.15);
+    animation: toastPop 2.2s ease forwards;
+    pointer-events: none;
+    z-index: 20;
+    max-width: 85%;
+    text-align: center;
+  }
+
+  @keyframes toastPop {
+    0% { opacity: 0; transform: translate(-50%, -20px) scale(0.9); }
+    10%, 80% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -10px) scale(0.95); }
+  }
+
+  /* ------ BOTTOM BAR ------ */
+  .bottom-bar {
+    display: flex;
+    gap: 8px;
+    padding: 10px;
+    background: linear-gradient(0deg, rgba(255,247,234,0.95), rgba(255,247,234,0.75));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-top: 3px solid var(--brown);
+    box-shadow: 0 -4px 0 rgba(61,40,23,0.08);
+    z-index: 10;
+    flex-shrink: 0;
+  }
+
+  .truck-card {
+    flex: 1;
+    background: var(--cream);
+    border: 3px solid var(--brown);
+    border-radius: 16px;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 3px 0 var(--brown);
+    min-width: 0;
+  }
+
+  .truck-emoji {
+    font-size: 32px;
+    line-height: 1;
+  }
+
+  .truck-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .truck-name {
+    font-family: 'Lilita One', sans-serif;
+    font-size: 14px;
+    color: var(--brown);
+    letter-spacing: 0.5px;
+  }
+
+  .water-bar {
+    height: 12px;
+    background: #E0D4C0;
+    border: 2px solid var(--brown);
+    border-radius: 6px;
+    margin-top: 3px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .water-bar-fill {
+    height: 100%;
+    background: linear-gradient(180deg, var(--water-light), var(--water));
+    transition: width 0.3s ease;
+    box-shadow: inset 0 -3px 0 rgba(0,0,0,0.15), inset 0 2px 0 rgba(255,255,255,0.3);
+  }
+
+  .water-bar-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 10px;
+    font-weight: 900;
+    color: var(--brown);
+    text-shadow: 0 0 3px rgba(255,255,255,0.9);
+    line-height: 1;
+  }
+
+  .btn {
+    font-family: 'Lilita One', sans-serif;
+    font-size: 16px;
+    letter-spacing: 0.5px;
+    background: var(--sun);
+    color: var(--brown);
+    border: 3px solid var(--brown);
+    border-radius: 16px;
+    padding: 10px 16px;
+    cursor: pointer;
+    box-shadow: 0 4px 0 var(--brown);
+    transition: transform 0.08s, box-shadow 0.08s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 52px;
+  }
+
+  .btn:active {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 var(--brown);
+  }
+
+  .btn.primary { background: var(--sun); }
+  .btn.shop-btn { background: var(--terracotta); color: var(--cream); }
+  .btn.build { background: var(--happy); color: var(--cream); }
+  .btn.cancel { background: #DDD; }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* ------ ACTION SHEET (appears when tapping things) ------ */
+  .action-sheet {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--cream);
+    border-top: 4px solid var(--brown);
+    border-radius: 24px 24px 0 0;
+    padding: 16px;
+    box-shadow: 0 -6px 0 rgba(61,40,23,0.1);
+    transform: translateY(100%);
+    transition: transform 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+    z-index: 15;
+    max-height: 75vh;
+    overflow-y: auto;
+  }
+
+  .action-sheet.open {
+    transform: translateY(0);
+  }
+
+  .sheet-title {
+    font-family: 'Lilita One', sans-serif;
+    font-size: 24px;
+    color: var(--brown);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .sheet-desc {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--brown-soft);
+    margin-bottom: 14px;
+    line-height: 1.4;
+  }
+
+  .sheet-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .sheet-actions .btn { flex: 1; min-width: 120px; justify-content: center; }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .stat-chip {
+    background: var(--sand);
+    border: 2px solid var(--brown);
+    border-radius: 10px;
+    padding: 8px 10px;
+  }
+
+  .stat-chip .label {
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--brown-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .stat-chip .value {
+    font-family: 'Lilita One', sans-serif;
+    font-size: 18px;
+    color: var(--brown);
+  }
+
+  /* ------ SHOP ------ */
+  .shop-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .shop-item {
+    background: var(--sand);
+    border: 3px solid var(--brown);
+    border-radius: 16px;
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .shop-item .icon {
+    font-size: 36px;
+    line-height: 1;
+    width: 44px;
+    text-align: center;
+  }
+
+  .shop-item .info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .shop-item .name {
+    font-family: 'Lilita One', sans-serif;
+    font-size: 17px;
+    color: var(--brown);
+    margin-bottom: 2px;
+  }
+
+  .shop-item .detail {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--brown-soft);
+  }
+
+  .shop-item .buy {
+    background: var(--happy);
+    color: var(--cream);
+    border: 2px solid var(--brown);
+    border-radius: 12px;
+    font-family: 'Lilita One', sans-serif;
+    font-size: 14px;
+    padding: 8px 12px;
+    box-shadow: 0 3px 0 var(--brown);
+    cursor: pointer;
+    min-height: 40px;
+    white-space: nowrap;
+  }
+
+  .shop-item .buy:active {
+    transform: translateY(2px);
+    box-shadow: 0 1px 0 var(--brown);
+  }
+
+  .shop-item .buy:disabled {
+    background: #CCC;
+    color: #777;
+    cursor: not-allowed;
+  }
+
+  .shop-item.maxed .buy {
+    background: var(--brown-soft);
+    color: var(--cream);
+  }
+
+  /* ------ INTRO SCREEN ------ */
+  .intro {
+    position: fixed;
+    inset: 0;
+    background: linear-gradient(180deg, var(--sky), var(--sand));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 100;
+    text-align: center;
+  }
+
+  .intro.hidden {
+    display: none;
+  }
+
+  .intro-logo {
+    font-family: 'Lilita One', sans-serif;
+    font-size: 56px;
+    color: var(--water);
+    text-shadow:
+      3px 3px 0 var(--cream),
+      6px 6px 0 var(--brown);
+    letter-spacing: 2px;
+    margin-bottom: 8px;
+    line-height: 1;
+    animation: bob 3s ease-in-out infinite;
+  }
+
+  @keyframes bob {
+    0%, 100% { transform: translateY(0) rotate(-1deg); }
+    50% { transform: translateY(-8px) rotate(1deg); }
+  }
+
+  .intro-sub {
+    font-family: 'Lilita One', sans-serif;
+    font-size: 20px;
+    color: var(--terracotta);
+    margin-bottom: 30px;
+    letter-spacing: 1px;
+  }
+
+  .intro-emojis {
+    font-size: 48px;
+    margin-bottom: 24px;
+    letter-spacing: 4px;
+    animation: sway 2s ease-in-out infinite;
+  }
+
+  @keyframes sway {
+    0%, 100% { transform: rotate(-3deg); }
+    50% { transform: rotate(3deg); }
+  }
+
+  .intro-text {
+    max-width: 420px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--brown);
+    margin-bottom: 28px;
+    line-height: 1.5;
+    background: rgba(255,247,234,0.6);
+    padding: 14px 18px;
+    border-radius: 16px;
+    border: 3px solid var(--brown);
+  }
+
+  .intro-text b { color: var(--water); font-weight: 900; }
+
+  .play-btn {
+    font-family: 'Lilita One', sans-serif;
+    font-size: 28px;
+    letter-spacing: 2px;
+    background: var(--terracotta);
+    color: var(--cream);
+    border: 4px solid var(--brown);
+    border-radius: 20px;
+    padding: 16px 40px;
+    cursor: pointer;
+    box-shadow: 0 6px 0 var(--brown);
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+
+  .play-btn:active {
+    transform: translateY(4px);
+    box-shadow: 0 2px 0 var(--brown);
+  }
+
+  /* ------ TUTORIAL HINT ------ */
+  .hint {
+    position: absolute;
+    background: var(--brown);
+    color: var(--cream);
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 800;
+    max-width: 220px;
+    pointer-events: none;
+    box-shadow: 0 4px 0 rgba(0,0,0,0.2);
+    z-index: 25;
+    animation: hintPulse 1.8s ease-in-out infinite;
+  }
+
+  .hint::after {
+    content: '';
+    position: absolute;
+    bottom: -10px;
+    left: 20px;
+    border: 8px solid transparent;
+    border-top-color: var(--brown);
+  }
+
+  @keyframes hintPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.03); }
+  }
+
+  /* ------ RESPONSIVE ------ */
+  @media (min-width: 700px) {
+    .hud-stat { font-size: 22px; padding: 8px 14px; min-width: 100px; }
+    .hud-title { font-size: 28px; }
+    .btn { font-size: 18px; padding: 12px 20px; }
+    .intro-logo { font-size: 80px; }
+    .intro-sub { font-size: 26px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="hud">
+    <div class="hud-stat coins"><span class="icon">🪙</span><span id="stat-coins">100</span></div>
+    <div class="hud-title">💧 Water Hero</div>
+    <div class="hud-stat helped"><span class="icon">🫶</span><span id="stat-helped">0</span></div>
+  </header>
+
+  <div class="world-wrap">
+    <canvas id="world"></canvas>
+    <div class="world-overlay" id="overlay"></div>
+  </div>
+
+  <footer class="bottom-bar">
+    <div class="truck-card">
+      <span class="truck-emoji" id="truck-emoji">🪣</span>
+      <div class="truck-info">
+        <div class="truck-name" id="truck-name">Bucket</div>
+        <div class="water-bar">
+          <div class="water-bar-fill" id="truck-fill" style="width: 0%"></div>
+          <div class="water-bar-label" id="truck-label">0 / 10 L</div>
+        </div>
+      </div>
+    </div>
+    <button class="btn shop-btn" id="open-shop">🏪 Shop</button>
+  </footer>
+
+  <div class="action-sheet" id="sheet">
+    <div id="sheet-content"></div>
+  </div>
+</div>
+
+<div class="intro" id="intro">
+  <div class="intro-emojis">🚰 💧 🏘️</div>
+  <h1 class="intro-logo">Water Hero</h1>
+  <div class="intro-sub">Help the Thirsty!</div>
+  <p class="intro-text">
+    Tap <b>grassy spots</b> to search for water underground.<br>
+    Build <b>pumps</b>, fill your <b>bucket</b>, and deliver water to <b>villages</b>!<br>
+    Earn coins to upgrade — grow from bucket to tanker truck! 🚛
+  </p>
+  <button class="play-btn" id="play-btn">▶ PLAY</button>
+</div>
+
+<script>
+// =========================================================
+//  WATER HERO — a game about building wells and helping
+//  villages.  Tap-based play suitable for small humans.
+// =========================================================
+
+(() => {
+
+  // ---------- Canvas + DPR setup ----------
+  const canvas = document.getElementById('world');
+  const ctx = canvas.getContext('2d');
+  const overlay = document.getElementById('overlay');
+  let W = 0, H = 0, DPR = 1;
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const rect = canvas.getBoundingClientRect();
+    W = rect.width;
+    H = rect.height;
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    layoutWorld();
+  }
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', () => setTimeout(resize, 120));
+
+  // ---------- Game state ----------
+  const TRUCK_TIERS = [
+    { name: 'Bucket',      emoji: '🪣', cap: 10,  speed: 140 },
+    { name: 'Cart',        emoji: '🛒', cap: 25,  speed: 170 },
+    { name: 'Van',         emoji: '🚐', cap: 60,  speed: 210 },
+    { name: 'Truck',       emoji: '🚚', cap: 150, speed: 250 },
+    { name: 'Tanker',      emoji: '🚛', cap: 400, speed: 300 },
+  ];
+
+  const VILLAGE_NAMES = ['Sunville', 'Dustbrook', 'Oakglen', 'Rockfield', 'Palmridge', 'Acacia', 'Maple Hill', 'Reedwater'];
+
+  const state = {
+    coins: 100,
+    helped: 0,          // total liters delivered (shown as people helped)
+    truckTier: 0,
+    upgrades: {
+      pumpRateLvl: 0,       // each level +20% fill rate
+      pumpStoreLvl: 0,      // each level +25% capacity
+      slotsUnlocked: 1,     // how many pumps can be built
+    },
+    truck: {
+      x: 0, y: 0,
+      targetX: 0, targetY: 0,
+      state: 'idle',     // idle | toPump | atPump | toVillage | atVillage | toBase
+      targetObj: null,
+      water: 0,
+      waggle: 0,
+    },
+    base: { x: 0, y: 0 },
+    spots: [],
+    pumps: [],           // references a spotIdx
+    villages: [],
+    floaters: [],        // {text, x, y, cls, born}
+    toasts: [],          // {text, born}
+    openedSheet: null,
+    openSheetRefresh: null,  // callback run each tick to update the live sheet's buttons/stats
+    time: 0,
+    hintShown: false,
+    surveysCompleted: 0,     // used to guarantee first survey yields a good spot
+    donationsReceived: 0,    // safety-net "community donations" given when stuck
+  };
+
+  // ---------- World layout ----------
+  function rand(a, b) { return a + Math.random() * (b - a); }
+  function ri(a, b) { return Math.floor(rand(a, b)); }
+
+  function layoutWorld() {
+    // Only initialize once; on resize we just rescale positions.
+    if (state.spots.length === 0) {
+      generateWorld();
+    } else {
+      // keep positions as ratios of W/H for simple rescaling
+      rescaleWorld();
+    }
+  }
+
+  function generateWorld() {
+    // Base at left-center
+    state.base.rx = 0.12;
+    state.base.ry = 0.55;
+
+    // Villages on right-ish side
+    const vCount = 4;
+    for (let i = 0; i < vCount; i++) {
+      const pop = ri(8, 30);
+      state.villages.push({
+        rx: rand(0.55, 0.92),
+        ry: rand(0.18 + (i/vCount)*0.7, 0.28 + (i/vCount)*0.7),
+        name: VILLAGE_NAMES[i % VILLAGE_NAMES.length],
+        thirst: 1.0, // start full; drain happens over time
+        drainRate: rand(0.006, 0.012), // per second
+        pop,
+        capacity: pop * 3, // liters of water the village can store (scales with population)
+        pulse: Math.random() * Math.PI * 2,
+      });
+    }
+
+    // Pump spots scattered in middle-left
+    const sCount = 10;
+    for (let i = 0; i < sCount; i++) {
+      state.spots.push({
+        rx: rand(0.22, 0.55),
+        ry: rand(0.12, 0.88),
+        surveyed: false,
+        yieldRate: 0,           // L/s base
+        hasPump: false,
+        variant: ri(0,3),       // grass tuft variation
+        bob: Math.random() * Math.PI * 2,
+      });
+    }
+
+    rescaleWorld();
+    state.truck.x = state.base.x;
+    state.truck.y = state.base.y;
+  }
+
+  function rescaleWorld() {
+    state.base.x = state.base.rx * W;
+    state.base.y = state.base.ry * H;
+    for (const s of state.spots) {
+      s.x = s.rx * W;
+      s.y = s.ry * H;
+    }
+    for (const v of state.villages) {
+      v.x = v.rx * W;
+      v.y = v.ry * H;
+    }
+    // If truck was at base, keep it there
+    if (state.truck.state === 'idle') {
+      state.truck.x = state.base.x;
+      state.truck.y = state.base.y;
+    }
+  }
+
+  // ---------- Economy ----------
+  const COSTS = {
+    survey: 20,
+    pump: 60,
+    slotUnlock: (n) => 150 * Math.pow(2.2, n - 1),      // n = current slots, cost to go +1
+    pumpRate: (lvl) => Math.round(90 * Math.pow(1.5, lvl)),
+    pumpStore: (lvl) => Math.round(70 * Math.pow(1.5, lvl)),
+    truckUpgrade: (tier) => [120, 320, 800, 2000][tier] || Infinity, // cost to go from tier -> tier+1
+  };
+
+  function pumpRateMult() { return 1 + 0.20 * state.upgrades.pumpRateLvl; }
+  function pumpStoreMult() { return 1 + 0.25 * state.upgrades.pumpStoreLvl; }
+
+  function currentTruck() { return TRUCK_TIERS[state.truckTier]; }
+
+  // ---------- Floaters & Toasts ----------
+  function addFloater(text, x, y, cls) {
+    const el = document.createElement('div');
+    el.className = 'floater ' + (cls || '');
+    el.textContent = text;
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    overlay.appendChild(el);
+    setTimeout(() => el.remove(), 1300);
+  }
+
+  function toast(text) {
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = text;
+    overlay.appendChild(el);
+    setTimeout(() => el.remove(), 2400);
+  }
+
+  // ---------- Input ----------
+  canvas.addEventListener('click', onCanvasTap);
+  function onCanvasTap(e) {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    handleTap(x, y);
+  }
+
+  function dist(a, b, c, d) { return Math.hypot(a - c, b - d); }
+
+  function handleTap(x, y) {
+    // Safety net: if the player has spent all their coins surveying and
+    // can't afford a pump, with no other way to earn coins, offer a
+    // one-time community donation so they're never fully stuck.
+    if (isPlayerStuck()) {
+      return openDonation();
+    }
+    // Priority: villages > pumps > spots > base
+    for (const v of state.villages) {
+      if (dist(x, y, v.x, v.y) < 42) return openVillage(v);
+    }
+    for (const p of state.pumps) {
+      const s = state.spots[p.spotIdx];
+      if (dist(x, y, s.x, s.y) < 40) return openPump(p);
+    }
+    for (const s of state.spots) {
+      if (s.hasPump) continue;
+      if (dist(x, y, s.x, s.y) < 38) return openSpot(s);
+    }
+    if (dist(x, y, state.base.x, state.base.y) < 48) return openBase();
+    closeSheet();
+  }
+
+  // Detect when the player cannot possibly make progress: no pumps, no
+  // water in the truck, and no affordable next step available.
+  function isPlayerStuck() {
+    if (state.pumps.length > 0) return false;        // has a pump → can still earn
+    if (state.truck.water > 0) return false;          // can still deliver what they have
+    if (state.truck.state !== 'idle') return false;   // truck is doing something
+
+    const hasSurveyedOpen = state.spots.some(s => s.surveyed && !s.hasPump);
+    const hasUnsurveyed = state.spots.some(s => !s.surveyed);
+    const canBuild  = hasSurveyedOpen && state.coins >= COSTS.pump;
+    const canSurvey = hasUnsurveyed  && state.coins >= COSTS.survey;
+
+    return !canBuild && !canSurvey;
+  }
+
+  function openDonation() {
+    const amount = COSTS.pump - state.coins + 10; // enough to build + small buffer
+    openSheet(`
+      <div class="sheet-title">💌 A kind donation!</div>
+      <div class="sheet-desc">
+        A neighbor heard about your water mission and wants to help.<br>
+        They're donating <b>${amount}🪙</b> so you can keep going. 🫶
+      </div>
+      <div class="sheet-actions">
+        <button class="btn primary" data-act="accept-donation" data-amount="${amount}">
+          ✨ Accept gift
+        </button>
+      </div>
+    `);
+  }
+
+  // ---------- Sheets ----------
+  const sheet = document.getElementById('sheet');
+  const sheetContent = document.getElementById('sheet-content');
+
+  function openSheet(html) {
+    sheetContent.innerHTML = html;
+    sheet.classList.add('open');
+    state.openedSheet = true;
+    state.openSheetRefresh = null;  // caller will (re)assign if needed
+  }
+  function closeSheet() {
+    sheet.classList.remove('open');
+    state.openedSheet = false;
+    state.openSheetRefresh = null;
+  }
+
+  // Small DOM update helpers that no-op when value already matches,
+  // so calling them each tick is cheap and doesn't cause layout thrash.
+  function setDisabled(el, val) {
+    if (!el) return;
+    if (el.disabled !== val) el.disabled = val;
+  }
+  function setText(el, val) {
+    if (!el) return;
+    if (el.textContent !== val) el.textContent = val;
+  }
+  function setHTML(el, val) {
+    if (!el) return;
+    if (el.innerHTML !== val) el.innerHTML = val;
+  }
+
+  // Tap outside sheet closes it
+  document.addEventListener('click', (e) => {
+    if (!sheet.classList.contains('open')) return;
+    if (!sheet.contains(e.target) && e.target !== canvas) {
+      // but let HUD buttons work normally
+    }
+  });
+
+  function openSpot(s) {
+    const idx = state.spots.indexOf(s);
+    if (!s.surveyed) {
+      openSheet(`
+        <div class="sheet-title">🌿 Grassy spot</div>
+        <div class="sheet-desc">Might have water underground. Survey to find out!</div>
+        <div class="sheet-actions">
+          <button class="btn primary" data-act="survey" data-i="${idx}" data-refresh-btn="survey">🔍 Survey (${COSTS.survey}🪙)</button>
+          <button class="btn cancel" data-act="close">Close</button>
+        </div>
+      `);
+      state.openSheetRefresh = () => {
+        const btn = sheetContent.querySelector('[data-refresh-btn="survey"]');
+        setDisabled(btn, state.coins < COSTS.survey);
+      };
+    } else {
+      const yieldTxt = s.yieldRate.toFixed(1);
+      openSheet(`
+        <div class="sheet-title">💧 Good spot!</div>
+        <div class="sheet-desc">Yields about <b>${yieldTxt} L/sec</b> of fresh water.</div>
+        <div class="sheet-actions">
+          <button class="btn build" data-act="build" data-i="${idx}" data-refresh-btn="build">🔨 Build Pump (${COSTS.pump}🪙)</button>
+          <button class="btn cancel" data-act="close">Close</button>
+        </div>
+      `);
+      state.openSheetRefresh = () => {
+        const btn = sheetContent.querySelector('[data-refresh-btn="build"]');
+        if (!btn) return;
+        const hasSlot = state.pumps.length < state.upgrades.slotsUnlocked;
+        const canAfford = state.coins >= COSTS.pump;
+        setDisabled(btn, !hasSlot || !canAfford);
+        const wanted = !hasSlot
+          ? '🔒 No pump slots — upgrade in shop'
+          : `🔨 Build Pump (${COSTS.pump}🪙)`;
+        if (btn.innerHTML.trim() !== wanted) btn.innerHTML = wanted;
+      };
+    }
+    state.openSheetRefresh();
+  }
+
+  function openPump(p) {
+    const pi = state.pumps.indexOf(p);
+    openSheet(`
+      <div class="sheet-title">🚰 Pump</div>
+      <div class="sheet-desc" data-refresh-text="pump-desc">Filling up…  Sends fresh water straight out of the ground.</div>
+      <div class="stats-grid">
+        <div class="stat-chip"><div class="label">Water</div><div class="value" data-refresh-text="pump-water">—</div></div>
+        <div class="stat-chip"><div class="label">Rate</div><div class="value" data-refresh-text="pump-rate">—</div></div>
+      </div>
+      <div class="sheet-actions">
+        <button class="btn primary" data-act="collect" data-i="${pi}" data-refresh-btn="collect">
+          🚚 Send truck to collect
+        </button>
+        <button class="btn cancel" data-act="close">Close</button>
+      </div>
+    `);
+    state.openSheetRefresh = () => {
+      const cur = Math.floor(p.water);
+      const cap = Math.round(p.maxWater);
+      const full = p.water >= p.maxWater - 0.5;
+      const truckBusy = state.truck.state !== 'idle';
+      setText(sheetContent.querySelector('[data-refresh-text="pump-desc"]'),
+        (full ? 'Tank full!' : 'Filling up…') + '  Sends fresh water straight out of the ground.');
+      setText(sheetContent.querySelector('[data-refresh-text="pump-water"]'),
+        `${cur} / ${cap} L`);
+      setText(sheetContent.querySelector('[data-refresh-text="pump-rate"]'),
+        `${p.rate.toFixed(1)} L/s`);
+      setDisabled(sheetContent.querySelector('[data-refresh-btn="collect"]'),
+        cur <= 0 || truckBusy);
+    };
+    state.openSheetRefresh();
+  }
+
+  function openVillage(v) {
+    const vi = state.villages.indexOf(v);
+    openSheet(`
+      <div class="sheet-title" data-refresh-text="vil-title">🏘️ ${v.name}</div>
+      <div class="sheet-desc" data-refresh-text="vil-desc"></div>
+      <div class="sheet-actions">
+        <button class="btn primary" data-act="deliver" data-i="${vi}" data-refresh-btn="deliver">
+          🚚 Deliver water
+        </button>
+        <button class="btn cancel" data-act="close">Close</button>
+      </div>
+    `);
+    state.openSheetRefresh = () => {
+      const thirstPct = Math.round(v.thirst * 100);
+      const storedL = Math.floor(v.thirst * v.capacity);
+      const spaceL = Math.floor((1 - v.thirst) * v.capacity);
+      const mood = v.thirst > 0.6 ? '😊' : v.thirst > 0.3 ? '😐' : '😩';
+      const descText = v.thirst >= 0.99 ? 'Fully stocked — come back later when they need more.'
+                     : v.thirst > 0.7  ? 'Doing okay — but they\u2019ll welcome a top-up.'
+                     : v.thirst > 0.35 ? 'Getting thirsty. A delivery would help a lot.'
+                     : 'Very thirsty! Big bonus for delivering water!';
+      const truckHasWater = state.truck.water > 0;
+      const truckBusy = state.truck.state !== 'idle';
+      const villageFull = v.thirst >= 0.99;
+
+      setText(sheetContent.querySelector('[data-refresh-text="vil-title"]'),
+        `🏘️ ${v.name} ${mood}`);
+      setHTML(sheetContent.querySelector('[data-refresh-text="vil-desc"]'),
+        `${descText}<br>Population: <b>${v.pop}</b> &middot; Stores: <b>${storedL} / ${v.capacity} L</b> (${thirstPct}%)`);
+
+      const btn = sheetContent.querySelector('[data-refresh-btn="deliver"]');
+      if (btn) {
+        setDisabled(btn, !truckHasWater || truckBusy || villageFull);
+        let wantedText;
+        if (villageFull) {
+          wantedText = '✅ Already full';
+        } else if (!truckHasWater) {
+          wantedText = '🚚 Truck is empty';
+        } else {
+          const willDeliver = Math.min(Math.floor(state.truck.water), spaceL);
+          wantedText = `🚚 Deliver ${willDeliver} L (has room for ${spaceL})`;
+        }
+        if (btn.innerHTML.trim() !== wantedText) btn.innerHTML = wantedText;
+      }
+    };
+    state.openSheetRefresh();
+  }
+
+  function openBase() {
+    const t = currentTruck();
+    openSheet(`
+      <div class="sheet-title">🏕️ Your Base</div>
+      <div class="sheet-desc">Home of the ${t.name}. Upgrade your vehicle in the Shop!</div>
+      <div class="sheet-actions">
+        <button class="btn shop-btn" data-act="shop">🏪 Open Shop</button>
+        <button class="btn cancel" data-act="close">Close</button>
+      </div>
+    `);
+  }
+
+  function openShop() {
+    const nextTruck = TRUCK_TIERS[state.truckTier + 1];
+    const truckCost = COSTS.truckUpgrade(state.truckTier);
+    const slotCost = Math.round(COSTS.slotUnlock(state.upgrades.slotsUnlocked));
+    const rateCost = COSTS.pumpRate(state.upgrades.pumpRateLvl);
+    const storeCost = COSTS.pumpStore(state.upgrades.pumpStoreLvl);
+
+    openSheet(`
+      <div class="sheet-title">🏪 Upgrades Shop</div>
+      <div class="sheet-desc">Spend coins to grow your operation!</div>
+      <div class="shop-list">
+
+        ${nextTruck ? `
+        <div class="shop-item">
+          <div class="icon">${nextTruck.emoji}</div>
+          <div class="info">
+            <div class="name">Upgrade to ${nextTruck.name}</div>
+            <div class="detail">Capacity ${currentTruck().cap}L → <b>${nextTruck.cap}L</b> &middot; faster too</div>
+          </div>
+          <button class="buy" data-act="buy-truck" data-refresh-btn="buy-truck">
+            ${truckCost}🪙
+          </button>
+        </div>` : `
+        <div class="shop-item maxed">
+          <div class="icon">${currentTruck().emoji}</div>
+          <div class="info">
+            <div class="name">${currentTruck().name}</div>
+            <div class="detail">You have the biggest vehicle!</div>
+          </div>
+          <button class="buy" disabled>MAX</button>
+        </div>
+        `}
+
+        <div class="shop-item">
+          <div class="icon">🧩</div>
+          <div class="info">
+            <div class="name">Extra Pump Slot</div>
+            <div class="detail">Allows ${state.upgrades.slotsUnlocked} → <b>${state.upgrades.slotsUnlocked + 1}</b> pumps</div>
+          </div>
+          <button class="buy" data-act="buy-slot" data-refresh-btn="buy-slot">
+            ${slotCost}🪙
+          </button>
+        </div>
+
+        <div class="shop-item">
+          <div class="icon">⚡</div>
+          <div class="info">
+            <div class="name">Faster Pumps (Lvl ${state.upgrades.pumpRateLvl + 1})</div>
+            <div class="detail">All pumps fill +20% faster</div>
+          </div>
+          <button class="buy" data-act="buy-rate" data-refresh-btn="buy-rate">
+            ${rateCost}🪙
+          </button>
+        </div>
+
+        <div class="shop-item">
+          <div class="icon">🛢️</div>
+          <div class="info">
+            <div class="name">Bigger Pump Tanks (Lvl ${state.upgrades.pumpStoreLvl + 1})</div>
+            <div class="detail">All pumps hold +25% more water</div>
+          </div>
+          <button class="buy" data-act="buy-store" data-refresh-btn="buy-store">
+            ${storeCost}🪙
+          </button>
+        </div>
+
+      </div>
+      <div style="height:10px"></div>
+      <div class="sheet-actions">
+        <button class="btn cancel" data-act="close">Close</button>
+      </div>
+    `);
+
+    state.openSheetRefresh = () => {
+      setDisabled(sheetContent.querySelector('[data-refresh-btn="buy-truck"]'),
+        state.coins < truckCost);
+      setDisabled(sheetContent.querySelector('[data-refresh-btn="buy-slot"]'),
+        state.coins < slotCost);
+      setDisabled(sheetContent.querySelector('[data-refresh-btn="buy-rate"]'),
+        state.coins < rateCost);
+      setDisabled(sheetContent.querySelector('[data-refresh-btn="buy-store"]'),
+        state.coins < storeCost);
+    };
+    state.openSheetRefresh();
+  }
+
+  // ---------- Action dispatch ----------
+  sheet.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-act]');
+    if (!t) return;
+    const act = t.dataset.act;
+    const i = t.dataset.i ? parseInt(t.dataset.i, 10) : null;
+
+    if (act === 'close') return closeSheet();
+    if (act === 'shop') return openShop();
+    if (act === 'survey') return doSurvey(i);
+    if (act === 'build')  return doBuild(i);
+    if (act === 'collect') return dispatchToPump(state.pumps[i]);
+    if (act === 'deliver') return dispatchToVillage(state.villages[i]);
+    if (act === 'buy-truck') return buyTruck();
+    if (act === 'buy-slot')  return buySlot();
+    if (act === 'buy-rate')  return buyRate();
+    if (act === 'buy-store') return buyStore();
+    if (act === 'accept-donation') {
+      const amount = parseInt(t.dataset.amount, 10) || 0;
+      state.coins += amount;
+      state.donationsReceived++;
+      addFloater(`+${amount}🪙`, W / 2, H / 2, 'coin');
+      toast(`Received ${amount}🪙 from a kind neighbor 🫶`);
+      closeSheet();
+      return;
+    }
+  });
+
+  document.getElementById('open-shop').addEventListener('click', openShop);
+
+  // ---------- Actions ----------
+  function doSurvey(i) {
+    const s = state.spots[i];
+    if (!s || s.surveyed) return;
+    if (state.coins < COSTS.survey) { toast('Not enough coins!'); return; }
+    state.coins -= COSTS.survey;
+    addFloater(`-${COSTS.survey}🪙`, s.x, s.y - 20, 'minus');
+    s.surveyed = true;
+
+    // Guarantee the first survey is a solidly good spot so new players
+    // can always get a pump running. Subsequent surveys are randomized.
+    if (state.surveysCompleted === 0) {
+      s.yieldRate = rand(1.8, 2.8);
+    } else {
+      const roll = Math.random();
+      if (roll < 0.15) {
+        s.yieldRate = rand(0.4, 0.8);
+        toast(`Dry spot at ${s.yieldRate.toFixed(1)} L/s — but still buildable`);
+      } else if (roll < 0.75) {
+        s.yieldRate = rand(1.0, 2.5);
+      } else {
+        s.yieldRate = rand(2.8, 4.2);
+        toast('Gusher! Great yield here!');
+      }
+    }
+    state.surveysCompleted++;
+    setTimeout(() => openSpot(s), 300);
+  }
+
+  function doBuild(i) {
+    const s = state.spots[i];
+    if (!s || !s.surveyed || s.hasPump) return;
+    if (state.pumps.length >= state.upgrades.slotsUnlocked) { toast('No pump slots available!'); return; }
+    if (state.coins < COSTS.pump) { toast('Not enough coins!'); return; }
+    state.coins -= COSTS.pump;
+    addFloater(`-${COSTS.pump}🪙`, s.x, s.y - 20, 'minus');
+    s.hasPump = true;
+    const baseStore = 30;
+    state.pumps.push({
+      spotIdx: state.spots.indexOf(s),
+      water: 0,
+      maxWater: baseStore * pumpStoreMult(),
+      rate: s.yieldRate * pumpRateMult(),
+      baseRate: s.yieldRate,
+      baseStore,
+    });
+    toast('Pump built! It will fill up over time 💧');
+    closeSheet();
+  }
+
+  function dispatchToPump(p) {
+    if (state.truck.state !== 'idle') return;
+    state.truck.state = 'toPump';
+    state.truck.targetObj = p;
+    const s = state.spots[p.spotIdx];
+    state.truck.targetX = s.x;
+    state.truck.targetY = s.y;
+    closeSheet();
+  }
+
+  function dispatchToVillage(v) {
+    if (state.truck.state !== 'idle') return;
+    if (state.truck.water <= 0) return;
+    state.truck.state = 'toVillage';
+    state.truck.targetObj = v;
+    state.truck.targetX = v.x;
+    state.truck.targetY = v.y;
+    closeSheet();
+  }
+
+  // ---------- Shop actions ----------
+  function buyTruck() {
+    const cost = COSTS.truckUpgrade(state.truckTier);
+    if (state.coins < cost) return;
+    const next = TRUCK_TIERS[state.truckTier + 1];
+    if (!next) return;
+    state.coins -= cost;
+    state.truckTier++;
+    toast(`Upgraded to ${next.name}! ${next.emoji}`);
+    openShop();
+  }
+  function buySlot() {
+    const cost = Math.round(COSTS.slotUnlock(state.upgrades.slotsUnlocked));
+    if (state.coins < cost) return;
+    state.coins -= cost;
+    state.upgrades.slotsUnlocked++;
+    toast('New pump slot unlocked!');
+    openShop();
+  }
+  function buyRate() {
+    const cost = COSTS.pumpRate(state.upgrades.pumpRateLvl);
+    if (state.coins < cost) return;
+    state.coins -= cost;
+    state.upgrades.pumpRateLvl++;
+    // apply to existing pumps
+    for (const p of state.pumps) p.rate = p.baseRate * pumpRateMult();
+    toast('All pumps now fill faster!');
+    openShop();
+  }
+  function buyStore() {
+    const cost = COSTS.pumpStore(state.upgrades.pumpStoreLvl);
+    if (state.coins < cost) return;
+    state.coins -= cost;
+    state.upgrades.pumpStoreLvl++;
+    for (const p of state.pumps) p.maxWater = p.baseStore * pumpStoreMult();
+    toast('Pumps hold more water now!');
+    openShop();
+  }
+
+  // ---------- Game update ----------
+  let last = performance.now();
+  function tick(now) {
+    const dt = Math.min(0.08, (now - last) / 1000);
+    last = now;
+    state.time += dt;
+    update(dt);
+    render();
+    updateHUD();
+    // Keep open sheet's buttons/stats live. ~10Hz is plenty for UI and
+    // avoids any busywork when player isn't looking at a sheet.
+    if (state.openSheetRefresh) {
+      state.sheetRefreshAccum = (state.sheetRefreshAccum || 0) + dt;
+      if (state.sheetRefreshAccum >= 0.1) {
+        state.sheetRefreshAccum = 0;
+        state.openSheetRefresh();
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function update(dt) {
+    // Pumps fill
+    for (const p of state.pumps) {
+      if (p.water < p.maxWater) {
+        p.water = Math.min(p.maxWater, p.water + p.rate * dt);
+      }
+    }
+
+    // Villages drain thirst
+    for (const v of state.villages) {
+      v.thirst = Math.max(0, v.thirst - v.drainRate * dt);
+      v.pulse += dt * (v.thirst < 0.3 ? 4 : 2);
+    }
+
+    // Truck movement
+    const tr = state.truck;
+    const t = currentTruck();
+    tr.waggle += dt * 10;
+    if (tr.state !== 'idle') {
+      const dx = tr.targetX - tr.x;
+      const dy = tr.targetY - tr.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 2) {
+        const move = t.speed * dt;
+        if (move >= d) {
+          tr.x = tr.targetX;
+          tr.y = tr.targetY;
+          onTruckArrive();
+        } else {
+          tr.x += dx / d * move;
+          tr.y += dy / d * move;
+        }
+      } else {
+        onTruckArrive();
+      }
+    }
+
+    // Bob animations
+    for (const s of state.spots) s.bob += dt * 2;
+  }
+
+  function onTruckArrive() {
+    const tr = state.truck;
+    const t = currentTruck();
+    if (tr.state === 'toPump') {
+      // Load water
+      const p = tr.targetObj;
+      const space = t.cap - tr.water;
+      const take = Math.min(space, p.water);
+      p.water -= take;
+      tr.water += take;
+      addFloater(`+${Math.floor(take)}💧`, tr.x, tr.y - 30, 'water');
+      // Head back to base (so it feels anchored)
+      if (take > 0) toast(`Loaded ${Math.floor(take)} L`);
+      tr.state = 'toBase';
+      tr.targetX = state.base.x;
+      tr.targetY = state.base.y;
+      tr.targetObj = null;
+    } else if (tr.state === 'toVillage') {
+      // Deliver only what the village has room for. Surplus stays on the truck.
+      const v = tr.targetObj;
+      const spaceL = (1 - v.thirst) * v.capacity;       // liters the village can still hold
+      const delivered = Math.min(tr.water, spaceL);
+      const thirstBefore = v.thirst;
+      tr.water -= delivered;
+      v.thirst = Math.min(1, v.thirst + delivered / v.capacity);
+
+      if (delivered > 0.5) {
+        // Coin payout scales with how thirsty they WERE when we arrived (up to 2.5x).
+        const bonusMult = 1 + (1 - thirstBefore) * 1.5;
+        const payout = Math.floor(delivered * 2 * bonusMult);
+        state.coins += payout;
+        state.helped += Math.floor(delivered);
+        addFloater(`+${payout}🪙`, v.x, v.y - 40, 'coin');
+        addFloater('❤️', v.x + 20, v.y - 60, 'happy');
+        const leftover = Math.floor(tr.water);
+        const msg = leftover > 0
+          ? `Delivered ${Math.floor(delivered)} L — ${leftover} L still on board`
+          : `Delivered ${Math.floor(delivered)} L to ${v.name}!`;
+        toast(msg);
+      } else {
+        toast(`${v.name} is already full!`);
+      }
+
+      tr.state = 'toBase';
+      tr.targetX = state.base.x;
+      tr.targetY = state.base.y;
+      tr.targetObj = null;
+    } else if (tr.state === 'toBase') {
+      tr.state = 'idle';
+      tr.x = state.base.x;
+      tr.y = state.base.y;
+    }
+  }
+
+  // ---------- Rendering ----------
+  function render() {
+    // Ground base
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#CEDCA5');
+    g.addColorStop(1, '#9CB071');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    // Scattered grass texture
+    drawGrassTexture();
+
+    // Paths from base to villages / pumps (subtle dirt paths)
+    drawPaths();
+
+    // Base
+    drawBase();
+
+    // Spots (grass tufts or pumps)
+    for (const s of state.spots) drawSpot(s);
+
+    // Villages
+    for (const v of state.villages) drawVillage(v);
+
+    // Truck
+    drawTruck();
+  }
+
+  function drawGrassTexture() {
+    // Low-detail noise dots: precompute once, then rotate through
+    if (!drawGrassTexture.dots) {
+      const dots = [];
+      for (let i = 0; i < 200; i++) {
+        dots.push({ rx: Math.random(), ry: Math.random(), c: Math.random() > 0.5 ? '#88A260' : '#B2C07D', r: rand(2, 5) });
+      }
+      drawGrassTexture.dots = dots;
+    }
+    for (const d of drawGrassTexture.dots) {
+      ctx.fillStyle = d.c;
+      ctx.beginPath();
+      ctx.arc(d.rx * W, d.ry * H, d.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Decorative trees
+    if (!drawGrassTexture.trees) {
+      const trees = [];
+      for (let i = 0; i < 8; i++) trees.push({ rx: rand(0.03, 0.97), ry: rand(0.04, 0.96) });
+      drawGrassTexture.trees = trees.filter(t =>
+        // keep trees away from village/pump lanes
+        !(t.rx > 0.2 && t.rx < 0.9 && t.ry > 0.1 && t.ry < 0.9)
+      );
+    }
+    for (const t of drawGrassTexture.trees) {
+      ctx.font = '26px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🌳', t.rx * W, t.ry * H);
+    }
+  }
+
+  function drawPaths() {
+    ctx.strokeStyle = 'rgba(199, 176, 136, 0.45)';
+    ctx.lineWidth = 8;
+    ctx.lineCap = 'round';
+    ctx.setLineDash([1, 14]);
+    ctx.lineDashOffset = -state.time * 8;
+    for (const v of state.villages) {
+      ctx.beginPath();
+      ctx.moveTo(state.base.x, state.base.y);
+      // Curved path via midpoint
+      const mx = (state.base.x + v.x) / 2;
+      const my = (state.base.y + v.y) / 2 + (v.y > state.base.y ? -20 : 20);
+      ctx.quadraticCurveTo(mx, my, v.x, v.y);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+
+  function drawBase() {
+    const { x, y } = state.base;
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    ctx.beginPath();
+    ctx.ellipse(x, y + 26, 36, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Tent (triangle)
+    ctx.fillStyle = '#C74F3A';
+    ctx.beginPath();
+    ctx.moveTo(x - 30, y + 20);
+    ctx.lineTo(x, y - 24);
+    ctx.lineTo(x + 30, y + 20);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#3D2817';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Door
+    ctx.fillStyle = '#3D2817';
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y + 20);
+    ctx.lineTo(x, y + 4);
+    ctx.lineTo(x + 6, y + 20);
+    ctx.closePath();
+    ctx.fill();
+
+    // Label
+    ctx.fillStyle = '#3D2817';
+    ctx.font = '900 11px Nunito, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('HOME', x, y + 38);
+  }
+
+  function drawSpot(s) {
+    const { x, y } = s;
+    if (s.hasPump) {
+      drawPump(s);
+      return;
+    }
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.beginPath();
+    ctx.ellipse(x, y + 16, 22, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (!s.surveyed) {
+      // Mystery grass tuft with question mark
+      const bob = Math.sin(s.bob) * 2;
+      ctx.font = '30px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🌱', x, y + bob);
+      // Pulse ring
+      const t = (state.time * 1.5 + s.bob) % 2;
+      ctx.strokeStyle = `rgba(44,140,153,${0.5 - t * 0.25})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, 14 + t * 14, 0, Math.PI * 2);
+      ctx.stroke();
+    } else {
+      // Surveyed but no pump: show a marker
+      ctx.font = '28px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('💦', x, y);
+      ctx.fillStyle = '#3D2817';
+      ctx.font = '900 10px Nunito, sans-serif';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(`${s.yieldRate.toFixed(1)} L/s`, x, y + 22);
+    }
+  }
+
+  function drawPump(s) {
+    const p = state.pumps.find(pp => pp.spotIdx === state.spots.indexOf(s));
+    if (!p) return;
+    const { x, y } = s;
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.beginPath();
+    ctx.ellipse(x, y + 22, 26, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Base (concrete slab)
+    ctx.fillStyle = '#B9B0A0';
+    ctx.strokeStyle = '#3D2817';
+    ctx.lineWidth = 2.5;
+    roundRect(x - 20, y + 8, 40, 14, 4, true, true);
+
+    // Pump body
+    ctx.fillStyle = '#5B8FB9';
+    roundRect(x - 9, y - 16, 18, 26, 3, true, true);
+
+    // Spout
+    ctx.fillStyle = '#3D2817';
+    ctx.fillRect(x + 7, y - 4, 12, 5);
+
+    // Handle
+    ctx.strokeStyle = '#3D2817';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x - 4, y - 16);
+    ctx.lineTo(x + 14, y - 22);
+    ctx.stroke();
+
+    // Water fill indicator (ring)
+    const pct = p.water / p.maxWater;
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#D7CDB8';
+    ctx.beginPath();
+    ctx.arc(x, y + 2, 28, -Math.PI/2, Math.PI * 1.5);
+    ctx.stroke();
+    ctx.strokeStyle = pct >= 1 ? '#2C8C99' : '#4FBACE';
+    ctx.beginPath();
+    ctx.arc(x, y + 2, 28, -Math.PI/2, -Math.PI/2 + pct * Math.PI * 2);
+    ctx.stroke();
+
+    // Drop emoji when full
+    if (pct >= 1) {
+      const bob = Math.sin(state.time * 3) * 2;
+      ctx.font = '20px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('💧', x + 20, y - 20 + bob);
+    }
+
+    // Label with current L
+    ctx.fillStyle = '#3D2817';
+    ctx.font = '900 10px Nunito, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(`${Math.floor(p.water)}/${Math.round(p.maxWater)}L`, x, y + 40);
+  }
+
+  function drawVillage(v) {
+    const { x, y } = v;
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    ctx.beginPath();
+    ctx.ellipse(x, y + 26, 34, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Houses cluster (3 houses)
+    const colors = ['#F4A261', '#E07856', '#E9B872'];
+    const xs = [-18, 4, 22];
+    const ys = [4, -2, 6];
+    for (let i = 0; i < 3; i++) {
+      const hx = x + xs[i];
+      const hy = y + ys[i];
+      // Roof
+      ctx.fillStyle = '#8B3A2E';
+      ctx.beginPath();
+      ctx.moveTo(hx - 11, hy - 4);
+      ctx.lineTo(hx, hy - 16);
+      ctx.lineTo(hx + 11, hy - 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#3D2817';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      // Wall
+      ctx.fillStyle = colors[i];
+      roundRect(hx - 9, hy - 4, 18, 16, 1.5, true, true);
+      // Door
+      ctx.fillStyle = '#3D2817';
+      ctx.fillRect(hx - 2, hy + 4, 4, 8);
+    }
+
+    // Mood emoji overhead
+    const mood = v.thirst > 0.6 ? '😊' : v.thirst > 0.3 ? '😐' : '😩';
+    const bob = v.thirst < 0.3 ? Math.sin(v.pulse) * 2 : Math.sin(v.pulse * 0.5) * 1;
+    ctx.font = '22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(mood, x, y - 32 + bob);
+
+    // Thirst bar
+    const barW = 54;
+    const barH = 7;
+    const barX = x - barW / 2;
+    const barY = y + 30;
+    ctx.fillStyle = '#5A4530';
+    roundRect(barX - 1, barY - 1, barW + 2, barH + 2, 4, true, false);
+    ctx.fillStyle = '#D7CDB8';
+    roundRect(barX, barY, barW, barH, 3, true, false);
+    // fill color by thirst
+    const col = v.thirst > 0.6 ? '#4FBACE' :
+                v.thirst > 0.3 ? '#F4A261' : '#C94F3A';
+    ctx.fillStyle = col;
+    roundRect(barX, barY, barW * v.thirst, barH, 3, true, false);
+
+    // Name
+    ctx.fillStyle = '#3D2817';
+    ctx.font = '900 11px Nunito, sans-serif';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(v.name, x, y + 50);
+  }
+
+  function drawTruck() {
+    const tr = state.truck;
+    const t = currentTruck();
+    const { x, y } = tr;
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath();
+    ctx.ellipse(x, y + 14, 18, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    const bob = tr.state !== 'idle' ? Math.sin(tr.waggle) * 1.5 : 0;
+    ctx.font = '32px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(t.emoji, x, y + bob);
+
+    // Water indicator above (if carrying)
+    if (tr.water > 0) {
+      const pct = tr.water / t.cap;
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      roundRect(x - 16, y - 26, 32, 6, 3, true, false);
+      ctx.fillStyle = '#2C8C99';
+      roundRect(x - 15, y - 25, 30 * pct, 4, 2, true, false);
+    }
+  }
+
+  function roundRect(x, y, w, h, r, fill, stroke) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    if (fill) ctx.fill();
+    if (stroke) ctx.stroke();
+  }
+
+  // ---------- HUD ----------
+  function updateHUD() {
+    document.getElementById('stat-coins').textContent = Math.floor(state.coins);
+    document.getElementById('stat-helped').textContent = Math.floor(state.helped);
+    const t = currentTruck();
+    document.getElementById('truck-emoji').textContent = t.emoji;
+    document.getElementById('truck-name').textContent = t.name;
+    const pct = (state.truck.water / t.cap) * 100;
+    document.getElementById('truck-fill').style.width = pct + '%';
+    document.getElementById('truck-label').textContent = `${Math.floor(state.truck.water)} / ${t.cap} L`;
+  }
+
+  // ---------- Intro ----------
+  document.getElementById('play-btn').addEventListener('click', () => {
+    document.getElementById('intro').classList.add('hidden');
+    resize();
+    requestAnimationFrame(tick);
+    setTimeout(() => {
+      toast('Tap a 🌱 grassy spot to look for water!');
+    }, 400);
+  });
+
+  // Prevent iOS pinch/double-tap zoom on game area
+  document.addEventListener('gesturestart', e => e.preventDefault());
+  document.addEventListener('touchmove', e => {
+    if (e.scale !== 1) e.preventDefault();
+  }, { passive: false });
+
+  // Initial layout (so intro shows atop proper canvas sizing)
+  resize();
+
+})();
+
+// --- Service worker registration for offline play ---
+// Uses a relative URL so it works correctly on GitHub Pages subpaths
+// (e.g. https://username.github.io/water-hero/).
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(err => {
+      console.warn('SW registration failed:', err);
+    });
+  });
+}
+</script>
+</body>
+</html>
