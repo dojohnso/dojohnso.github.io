@@ -70,7 +70,11 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 10px 14px;
+    padding:
+      calc(10px + env(safe-area-inset-top))
+      calc(14px + env(safe-area-inset-right))
+      10px
+      calc(14px + env(safe-area-inset-left));
     gap: 10px;
     background: linear-gradient(180deg, rgba(255,247,234,0.95), rgba(255,247,234,0.75));
     backdrop-filter: blur(8px);
@@ -122,6 +126,16 @@
     flex: 1;
     position: relative;
     overflow: hidden;
+  }
+
+  /* Wrapper we translate to shift the world up when a sheet would cover
+     the tapped object. Clips within .world-wrap's overflow:hidden. */
+  .world-inner {
+    position: absolute;
+    inset: 0;
+    transform: translateY(0);
+    transition: transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1);
+    will-change: transform;
   }
 
   #world {
@@ -189,7 +203,11 @@
   .bottom-bar {
     display: flex;
     gap: 8px;
-    padding: 10px;
+    padding:
+      10px
+      calc(10px + env(safe-area-inset-right))
+      calc(10px + env(safe-area-inset-bottom))
+      calc(10px + env(safe-area-inset-left));
     background: linear-gradient(0deg, rgba(255,247,234,0.95), rgba(255,247,234,0.75));
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
@@ -300,7 +318,11 @@
     background: var(--cream);
     border-top: 4px solid var(--brown);
     border-radius: 24px 24px 0 0;
-    padding: 16px;
+    padding:
+      16px
+      calc(16px + env(safe-area-inset-right))
+      calc(16px + env(safe-area-inset-bottom))
+      calc(16px + env(safe-area-inset-left));
     box-shadow: 0 -6px 0 rgba(61,40,23,0.1);
     transform: translateY(100%);
     transition: transform 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.2);
@@ -578,8 +600,10 @@
   </header>
 
   <div class="world-wrap">
-    <canvas id="world"></canvas>
-    <div class="world-overlay" id="overlay"></div>
+    <div class="world-inner" id="world-inner">
+      <canvas id="world"></canvas>
+      <div class="world-overlay" id="overlay"></div>
+    </div>
   </div>
 
   <footer class="bottom-bar">
@@ -858,16 +882,48 @@
   const sheet = document.getElementById('sheet');
   const sheetContent = document.getElementById('sheet-content');
 
-  function openSheet(html) {
+  const worldInner = document.getElementById('world-inner');
+
+  // focusPoint is optional {x, y} in canvas/world coords; when provided,
+  // after the sheet animates open we measure and shift the world up if
+  // the sheet would otherwise cover the tapped object.
+  function openSheet(html, focusPoint) {
     sheetContent.innerHTML = html;
     sheet.classList.add('open');
     state.openedSheet = true;
     state.openSheetRefresh = null;  // caller will (re)assign if needed
+
+    // Reset any prior shift first so we measure cleanly.
+    worldInner.style.transform = 'translateY(0px)';
+
+    if (focusPoint) {
+      // Wait two frames: one for DOM paint, one for the sheet's open
+      // animation to actually position the element.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (!state.openedSheet) return;   // user already closed it
+        const sheetRect = sheet.getBoundingClientRect();
+        const wrapRect = worldInner.getBoundingClientRect();
+        // focusPoint is in world/canvas coords (before transform, but
+        // since we reset transform above, these match viewport y - wrapRect.top)
+        const objViewY = wrapRect.top + focusPoint.y;
+        const safeBottom = sheetRect.top - 60;     // 60px breathing room
+        // Also keep object at least 12px below HUD area top.
+        // wrapRect.top IS already below the HUD, so shifting up means the
+        // object approaches wrapRect.top. We'll cap the shift so object
+        // doesn't slide into the HUD gradient.
+        const maxShift = Math.max(0, (focusPoint.y) - 20); // leave 20px from world top
+        if (objViewY > safeBottom) {
+          const shift = Math.min(maxShift, objViewY - safeBottom);
+          if (shift > 0) worldInner.style.transform = `translateY(-${shift}px)`;
+        }
+      }));
+    }
   }
   function closeSheet() {
     sheet.classList.remove('open');
     state.openedSheet = false;
     state.openSheetRefresh = null;
+    worldInner.style.transform = 'translateY(0px)';
   }
 
   // Small DOM update helpers that no-op when value already matches,
@@ -895,6 +951,7 @@
 
   function openSpot(s) {
     const idx = state.spots.indexOf(s);
+    const focus = { x: s.x, y: s.y };
     if (!s.surveyed) {
       openSheet(`
         <div class="sheet-title">🌿 Grassy spot</div>
@@ -903,7 +960,7 @@
           <button class="btn primary" data-act="survey" data-i="${idx}" data-refresh-btn="survey">🔍 Survey (${COSTS.survey}🪙)</button>
           <button class="btn cancel" data-act="close">Close</button>
         </div>
-      `);
+      `, focus);
       state.openSheetRefresh = () => {
         const btn = sheetContent.querySelector('[data-refresh-btn="survey"]');
         setDisabled(btn, state.coins < COSTS.survey);
@@ -917,7 +974,7 @@
           <button class="btn build" data-act="build" data-i="${idx}" data-refresh-btn="build">🔨 Build Pump (${COSTS.pump}🪙)</button>
           <button class="btn cancel" data-act="close">Close</button>
         </div>
-      `);
+      `, focus);
       state.openSheetRefresh = () => {
         const btn = sheetContent.querySelector('[data-refresh-btn="build"]');
         if (!btn) return;
@@ -935,6 +992,7 @@
 
   function openPump(p) {
     const pi = state.pumps.indexOf(p);
+    const s = state.spots[p.spotIdx];
     openSheet(`
       <div class="sheet-title">🚰 Pump</div>
       <div class="sheet-desc" data-refresh-text="pump-desc">Filling up…  Sends fresh water straight out of the ground.</div>
@@ -948,7 +1006,7 @@
         </button>
         <button class="btn cancel" data-act="close">Close</button>
       </div>
-    `);
+    `, { x: s.x, y: s.y });
     state.openSheetRefresh = () => {
       const cur = Math.floor(p.water);
       const cap = Math.round(p.maxWater);
@@ -977,7 +1035,7 @@
         </button>
         <button class="btn cancel" data-act="close">Close</button>
       </div>
-    `);
+    `, { x: v.x, y: v.y });
     state.openSheetRefresh = () => {
       const thirstPct = Math.round(v.thirst * 100);
       const storedL = Math.floor(v.thirst * v.capacity);
@@ -1023,7 +1081,7 @@
         <button class="btn shop-btn" data-act="shop">🏪 Open Shop</button>
         <button class="btn cancel" data-act="close">Close</button>
       </div>
-    `);
+    `, { x: state.base.x, y: state.base.y });
   }
 
   function openShop() {

@@ -1,6 +1,6 @@
 // Water Hero service worker
 // Bump CACHE_VERSION to force an update after editing game files.
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = `water-hero-${CACHE_VERSION}`;
 
 // All URLs the game needs to run offline. Relative paths so the SW works
