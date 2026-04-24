@@ -674,7 +674,30 @@
     { name: 'Tanker',      emoji: '🚛', cap: 400, speed: 300 },
   ];
 
-  const VILLAGE_NAMES = ['Sunville', 'Dustbrook', 'Oakglen', 'Rockfield', 'Palmridge', 'Acacia', 'Maple Hill', 'Reedwater'];
+  const VILLAGE_NAMES = [
+    'Sunville', 'Dustbrook', 'Oakglen', 'Rockfield',
+    'Palmridge', 'Acacia', 'Maple Hill', 'Reedwater',
+    'Elmsford', 'Thornwick', 'Larkspur', 'Ironhollow',
+  ];
+  const MAX_VILLAGES = 8;
+
+  // Build a village object with derived defaults. Used both for initial
+  // world gen and for spawning new villages mid-game.
+  function makeVillage(name, rx, ry, pop, thirst = 1.0, spawnedAt = 0) {
+    const maxPop = ri(55, 90);
+    return {
+      rx, ry,
+      name,
+      thirst,
+      drainRate: rand(0.006, 0.012), // per second (as ratio of capacity)
+      pop,
+      maxPop,
+      capacity: pop * 3, // liters; scales with population
+      growthTimer: rand(15, 30), // seconds until next +1 pop
+      pulse: Math.random() * Math.PI * 2,
+      spawnedAt, // time.value when created; used for entry animation
+    };
+  }
 
   const state = {
     coins: 100,
@@ -705,6 +728,7 @@
     hintShown: false,
     surveysCompleted: 0,     // used to guarantee first survey yields a good spot
     donationsReceived: 0,    // safety-net "community donations" given when stuck
+    newTownTimer: 75,        // seconds until next spawn attempt; first wave ~75s in
   };
 
   // ---------- World layout ----------
@@ -730,16 +754,11 @@
     const vCount = 4;
     for (let i = 0; i < vCount; i++) {
       const pop = ri(8, 30);
-      state.villages.push({
-        rx: rand(0.55, 0.92),
-        ry: rand(0.18 + (i/vCount)*0.7, 0.28 + (i/vCount)*0.7),
-        name: VILLAGE_NAMES[i % VILLAGE_NAMES.length],
-        thirst: 1.0, // start full; drain happens over time
-        drainRate: rand(0.006, 0.012), // per second
-        pop,
-        capacity: pop * 3, // liters of water the village can store (scales with population)
-        pulse: Math.random() * Math.PI * 2,
-      });
+      const rx = rand(0.55, 0.92);
+      const ry = rand(0.18 + (i/vCount)*0.7, 0.28 + (i/vCount)*0.7);
+      state.villages.push(
+        makeVillage(VILLAGE_NAMES[i % VILLAGE_NAMES.length], rx, ry, pop)
+      );
     }
 
     // Pump spots scattered in middle-left
@@ -1309,6 +1328,57 @@
     openShop();
   }
 
+  // ---------- Village growth & spawning ----------
+  // Grow a village by +1 population. Preserve absolute stored water
+  // so the thirst ratio naturally drops — "they're spread thinner now"
+  // which creates organic demand pressure as populations rise.
+  function growVillage(v) {
+    const storedL = v.thirst * v.capacity;
+    v.pop += 1;
+    v.capacity = v.pop * 3;
+    v.thirst = Math.min(1, storedL / v.capacity);
+    // Next growth: slows as pop gets bigger (logistic-ish feel)
+    v.growthTimer = rand(12, 25) * (1 + v.pop / 50);
+    addFloater('+1 \u{1F476}', v.x, v.y - 50, 'happy');  // +1 baby emoji
+  }
+
+  // Try to spawn a new village. Looks for a free spot on the right side
+  // of the map that isn't too close to any existing village.
+  function trySpawnNewTown() {
+    if (state.villages.length >= MAX_VILLAGES) return;
+
+    // Minimum separation between villages (in pixels, not ratios,
+    // because village footprints are pixel-sized).
+    const MIN_SEP = 100;
+    // Find an unused name
+    const usedNames = new Set(state.villages.map(v => v.name));
+    const freeName = VILLAGE_NAMES.find(n => !usedNames.has(n));
+    if (!freeName) return; // ran out of names
+
+    // Try up to 30 random placements to find one that doesn't collide.
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const rx = rand(0.55, 0.92);
+      const ry = rand(0.12, 0.88);
+      const px = rx * W;
+      const py = ry * H;
+      // Ensure separation from every existing village
+      let ok = true;
+      for (const v of state.villages) {
+        if (Math.hypot(px - v.x, py - v.y) < MIN_SEP) { ok = false; break; }
+      }
+      if (!ok) continue;
+
+      // Build village: start smaller so they ease in
+      const pop = ri(6, 12);
+      const v = makeVillage(freeName, rx, ry, pop, 1.0, state.time);
+      v.x = px; v.y = py;
+      state.villages.push(v);
+      toast(`\u{1F389} New village founded: ${freeName}!`);
+      return;
+    }
+    // Couldn't find a spot — try again on next timer tick
+  }
+
   // ---------- Game update ----------
   let last = performance.now();
   function tick(now) {
@@ -1338,10 +1408,29 @@
       }
     }
 
-    // Villages drain thirst
+    // Villages drain thirst + grow over time
     for (const v of state.villages) {
       v.thirst = Math.max(0, v.thirst - v.drainRate * dt);
       v.pulse += dt * (v.thirst < 0.3 ? 4 : 2);
+
+      if (v.pop < v.maxPop) {
+        v.growthTimer -= dt;
+        if (v.growthTimer <= 0) {
+          growVillage(v);
+        }
+      }
+    }
+
+    // New town spawning: occasionally a new village pops up on the map
+    // as long as there's room (max 8) and a free placement exists.
+    state.newTownTimer -= dt;
+    if (state.newTownTimer <= 0) {
+      trySpawnNewTown();
+      // Retry window: 60-110s, gets faster as more villages exist
+      // (more demand = more growth), but skips quickly if we're already full.
+      state.newTownTimer = state.villages.length >= MAX_VILLAGES
+        ? 60
+        : rand(60, 110);
     }
 
     // Truck movement
@@ -1640,21 +1729,61 @@
     ctx.fillText(`${Math.floor(p.water)}/${Math.round(p.maxWater)}L`, x, y + 40);
   }
 
+  // Fixed slot layout for 2-6 houses. First N used based on pop tier.
+  // Slots ordered so smaller clusters look balanced (front row first).
+  const HOUSE_SLOTS = [
+    { x:  -14, y:  4,  c: 0 },  // front left
+    { x:   10, y:  6,  c: 2 },  // front right
+    { x:   -2, y: -6,  c: 1 },  // back middle
+    { x:  -28, y:  0,  c: 2 },  // far left
+    { x:   26, y:  2,  c: 0 },  // far right
+    { x:   14, y:-12,  c: 1 },  // back right
+  ];
+
+  function villageHouseCount(pop) {
+    if (pop < 16) return 2;
+    if (pop < 32) return 3;
+    if (pop < 50) return 4;
+    if (pop < 70) return 5;
+    return 6;
+  }
+
   function drawVillage(v) {
     const { x, y } = v;
+
+    // Spawn-in animation: scale from 0 → 1 over 0.6s the first time a
+    // new village appears so it pops in smoothly instead of flashing.
+    const age = state.time - (v.spawnedAt || 0);
+    let scale = 1;
+    if (v.spawnedAt && age < 0.6) {
+      const t = age / 0.6;
+      // Overshoot slightly (back-ease-out): scale 0 → 1.15 → 1
+      scale = 1 + Math.sin(t * Math.PI) * 0.15;
+      // Actual growth
+      scale *= Math.min(1, t * 1.4);
+    }
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.translate(-x, -y);
+
     // Shadow
     ctx.fillStyle = 'rgba(0,0,0,0.15)';
     ctx.beginPath();
     ctx.ellipse(x, y + 26, 34, 7, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Houses cluster (3 houses)
+    // Houses — count scales with population
     const colors = ['#F4A261', '#E07856', '#E9B872'];
-    const xs = [-18, 4, 22];
-    const ys = [4, -2, 6];
-    for (let i = 0; i < 3; i++) {
-      const hx = x + xs[i];
-      const hy = y + ys[i];
+    const houseCount = villageHouseCount(v.pop);
+    // Draw back rows first (sorted by y ascending = higher in view = drawn first)
+    const slots = HOUSE_SLOTS.slice(0, houseCount)
+      .slice()
+      .sort((a, b) => a.y - b.y);
+    for (const slot of slots) {
+      const hx = x + slot.x;
+      const hy = y + slot.y;
       // Roof
       ctx.fillStyle = '#8B3A2E';
       ctx.beginPath();
@@ -1667,7 +1796,7 @@
       ctx.lineWidth = 1.5;
       ctx.stroke();
       // Wall
-      ctx.fillStyle = colors[i];
+      ctx.fillStyle = colors[slot.c];
       roundRect(hx - 9, hy - 4, 18, 16, 1.5, true, true);
       // Door
       ctx.fillStyle = '#3D2817';
@@ -1697,11 +1826,13 @@
     ctx.fillStyle = col;
     roundRect(barX, barY, barW * v.thirst, barH, 3, true, false);
 
-    // Name
+    // Name + population
     ctx.fillStyle = '#3D2817';
     ctx.font = '900 11px Nunito, sans-serif';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText(v.name, x, y + 50);
+    ctx.fillText(`${v.name} \u00B7 ${v.pop}`, x, y + 50);
+
+    ctx.restore();
   }
 
   function drawTruck() {
