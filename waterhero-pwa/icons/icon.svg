@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background: sky gradient -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#BDE3EC"/>
+      <stop offset="55%" stop-color="#CEDCA5"/>
+      <stop offset="100%" stop-color="#9CB071"/>
+    </linearGradient>
+    <linearGradient id="drop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4FBACE"/>
+      <stop offset="100%" stop-color="#2C8C99"/>
+    </linearGradient>
+    <radialGradient id="shine" cx="0.35" cy="0.3" r="0.4">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Safe zone: everything important within the center 80% (410px of 512) for maskable icons -->
+  <rect width="512" height="512" fill="url(#sky)"/>
+
+  <!-- Sun -->
+  <circle cx="108" cy="110" r="42" fill="#F6C15A" opacity="0.9"/>
+
+  <!-- Ground hill -->
+  <path d="M 0 420 Q 120 360 256 400 T 512 390 L 512 512 L 0 512 Z" fill="#7A8F58"/>
+
+  <!-- Three little houses at the bottom -->
+  <g transform="translate(120 380)">
+    <polygon points="-32,10 0,-26 32,10" fill="#8B3A2E"/>
+    <rect x="-24" y="10" width="48" height="42" fill="#F4A261" stroke="#3D2817" stroke-width="3"/>
+    <rect x="-6" y="28" width="12" height="24" fill="#3D2817"/>
+  </g>
+  <g transform="translate(256 390)">
+    <polygon points="-36,12 0,-30 36,12" fill="#8B3A2E"/>
+    <rect x="-28" y="12" width="56" height="48" fill="#E07856" stroke="#3D2817" stroke-width="3"/>
+    <rect x="-8" y="34" width="16" height="26" fill="#3D2817"/>
+  </g>
+  <g transform="translate(392 380)">
+    <polygon points="-32,10 0,-26 32,10" fill="#8B3A2E"/>
+    <rect x="-24" y="10" width="48" height="42" fill="#E9B872" stroke="#3D2817" stroke-width="3"/>
+    <rect x="-6" y="28" width="12" height="24" fill="#3D2817"/>
+  </g>
+
+  <!-- Big water drop centerpiece -->
+  <g transform="translate(256 210)">
+    <!-- Drop shape -->
+    <path d="M 0 -130 C -90 -30, -110 60, 0 120 C 110 60, 90 -30, 0 -130 Z"
+          fill="url(#drop)"
+          stroke="#1E5D6B"
+          stroke-width="8"/>
+    <!-- Highlight -->
+    <ellipse cx="-30" cy="-40" rx="26" ry="48" fill="url(#shine)" transform="rotate(-20)"/>
+  </g>
+</svg>
