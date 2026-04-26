@@ -1662,7 +1662,7 @@
       // Player heads back to base; drivers go straight to delivering if
       // they have water and a needy village exists, so they stay efficient.
       if (!isPlayer && tr.water > 0) {
-        const target = pickNeediestVillage();
+        const target = pickNeediestVillage(null, tr);
         if (target) {
           tr.state = 'toVillage';
           tr.targetObj = target;
@@ -1710,7 +1710,7 @@
 
       // If a driver still has water after delivery, find another needy village.
       if (!isPlayer && tr.water > 0.5) {
-        const target = pickNeediestVillage(v);
+        const target = pickNeediestVillage(v, tr);
         if (target) {
           tr.state = 'toVillage';
           tr.targetObj = target;
@@ -1733,6 +1733,11 @@
   // ---------- Driver AI ----------
   // Drivers think periodically when idle: if they have water, find the
   // neediest village; if empty, find the best pump to fetch from.
+  //
+  // Claim accounting: when scoring pumps and villages, we subtract the
+  // water/space that other trucks (player + drivers) are already heading
+  // to use. This prevents three idle drivers from all picking the same
+  // half-full pump and arriving to find each other already there.
   function driverThink(d, dt) {
     if (d.state !== 'idle') return;
     d.idleTimer -= dt;
@@ -1740,8 +1745,9 @@
     d.idleTimer = 0.4;  // re-evaluate every ~0.4s while idle
 
     if (d.water > 0.5) {
-      // Has water: find a village that has room.
-      const target = pickNeediestVillage();
+      // Has water: find a village that needs water and isn't already
+      // about to be filled by other en-route trucks.
+      const target = pickNeediestVillage(null, d);
       if (target) {
         d.state = 'toVillage';
         d.targetObj = target;
@@ -1753,15 +1759,17 @@
       return;
     }
 
-    // Empty: find a pump with water to collect from.
-    // Score = water available, minus a small distance penalty so they
-    // prefer nearby full pumps over far full ones.
+    // Empty: find a pump with available water to collect from.
+    // "Available" = water on the pump minus what other inbound trucks
+    // plan to take. So if a Tanker is already heading there to drain it,
+    // this driver will pick a different pump.
     let best = null, bestScore = 0.5; // need at least 0.5L to bother
     for (const p of state.pumps) {
-      if (p.water < 1) continue;
+      const avail = pumpAvailableWater(p, d);
+      if (avail < 1) continue;
       const s = state.spots[p.spotIdx];
       const dist = Math.hypot(s.x - d.x, s.y - d.y);
-      const score = p.water - dist * 0.005;
+      const score = avail - dist * 0.005;
       if (score > bestScore) { bestScore = score; best = p; }
     }
     if (best) {
@@ -1771,23 +1779,65 @@
       d.targetX = s.x;
       d.targetY = s.y;
     }
-    // else: no pumps with water available; keep waiting.
+    // else: no pumps with available water; keep waiting.
   }
 
-  // Pick the neediest village (lowest thirst) that still has room.
-  // Optionally exclude one (e.g. the village we just delivered to).
-  function pickNeediestVillage(exclude) {
+  // Pick the neediest village that still has room AFTER accounting for
+  // water other trucks are already bringing. Excludes a target if given
+  // (used right after a driver delivers, to skip the just-served village).
+  function pickNeediestVillage(exclude, self) {
     let best = null, bestScore = Infinity;
     for (const v of state.villages) {
       if (v === exclude) continue;
-      if (v.thirst >= 0.99) continue;  // full
-      // Score: lower thirst = more urgent (lower score wins).
-      // Add a tiny distance bias so drivers don't all converge on
-      // the same far village simultaneously.
+      const space = villageAvailableSpace(v, self);
+      if (space < 1) continue;  // already full or fully claimed
+      // Score: lower thirst = more urgent (lower score wins). The
+      // available-space gate above already filters out "claimed" villages
+      // so we just rank the rest by genuine thirst.
       const score = v.thirst;
       if (score < bestScore) { bestScore = score; best = v; }
     }
     return best;
+  }
+
+  // Iterate every vehicle (player truck + drivers), so claim helpers
+  // can consider the whole fleet without duplicating the union logic.
+  function* allVehicles() {
+    yield state.truck;
+    for (const d of state.drivers) yield d;
+  }
+
+  // How much water is genuinely up-for-grabs at this pump? Starts from
+  // the pump's current water level and subtracts what every other truck
+  // currently inbound to this pump intends to load.
+  function pumpAvailableWater(p, self) {
+    let avail = p.water;
+    for (const v of allVehicles()) {
+      if (v === self) continue;
+      if (v.state !== 'toPump') continue;
+      if (v.targetObj !== p) continue;
+      const cap = vehicleCap(v);
+      const willTake = Math.min(cap - v.water, avail);
+      avail -= Math.max(0, willTake);
+      if (avail <= 0) return 0;
+    }
+    return avail;
+  }
+
+  // How much room does this village still have AFTER accounting for
+  // water that's already on the way?  Starts from current empty space
+  // and subtracts the projected delivery from every inbound truck.
+  function villageAvailableSpace(v, self) {
+    let space = (1 - v.thirst) * v.capacity;
+    for (const tr of allVehicles()) {
+      if (tr === self) continue;
+      if (tr.state !== 'toVillage') continue;
+      if (tr.targetObj !== v) continue;
+      const willDeliver = Math.min(tr.water, space);
+      space -= Math.max(0, willDeliver);
+      if (space <= 0) return 0;
+    }
+    return space;
   }
 
   // ---------- Rendering ----------
