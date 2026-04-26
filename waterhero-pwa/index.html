@@ -729,7 +729,35 @@
     surveysCompleted: 0,     // used to guarantee first survey yields a good spot
     donationsReceived: 0,    // safety-net "community donations" given when stuck
     newTownTimer: 75,        // seconds until next spawn attempt; first wave ~75s in
+    drivers: [],             // hired NPC drivers — see makeDriver()
   };
+
+  // Each driver has their own vehicle (separate from the player's).
+  // They auto-fetch from pumps and deliver to whichever village needs
+  // water most. Hire cost rises with each driver.
+  const DRIVER_HIRE_COST = (n) => Math.round(500 * Math.pow(1.8, n));
+  const MAX_DRIVERS = 6;
+  const DRIVER_BADGE_COLORS = ['#E07856', '#7FB069', '#5B8FB9', '#C77DBA', '#E2B33D', '#A06B4F'];
+
+  function makeDriver(idx) {
+    return {
+      // Vehicle stats (parallel to state.truck)
+      x: state.base.x,
+      y: state.base.y,
+      targetX: state.base.x,
+      targetY: state.base.y,
+      state: 'idle',         // idle | toPump | toVillage | toBase
+      targetObj: null,
+      water: 0,
+      waggle: Math.random() * Math.PI * 2,
+      tier: 0,               // index into TRUCK_TIERS, like player's truckTier
+      // Driver-specific
+      id: idx,
+      name: 'Driver ' + (idx + 1),
+      badge: DRIVER_BADGE_COLORS[idx % DRIVER_BADGE_COLORS.length],
+      idleTimer: 0,          // small delay between AI decisions so they don't thrash
+    };
+  }
 
   // ---------- World layout ----------
   function rand(a, b) { return a + Math.random() * (b - a); }
@@ -872,6 +900,8 @@
     if (state.pumps.length > 0) return false;        // has a pump → can still earn
     if (state.truck.water > 0) return false;          // can still deliver what they have
     if (state.truck.state !== 'idle') return false;   // truck is doing something
+    // Drivers might be in the middle of a delivery that will pay out.
+    if (state.drivers.some(d => d.water > 0 || d.state !== 'idle')) return false;
 
     const hasSurveyedOpen = state.spots.some(s => s.surveyed && !s.hasPump);
     const hasUnsurveyed = state.spots.some(s => !s.surveyed);
@@ -1109,11 +1139,39 @@
     const slotCost = Math.round(COSTS.slotUnlock(state.upgrades.slotsUnlocked));
     const rateCost = COSTS.pumpRate(state.upgrades.pumpRateLvl);
     const storeCost = COSTS.pumpStore(state.upgrades.pumpStoreLvl);
+    const driverCount = state.drivers.length;
+    const hireCost = DRIVER_HIRE_COST(driverCount);
+    const canHire = driverCount < MAX_DRIVERS;
 
     openSheet(`
       <div class="sheet-title">🏪 Upgrades Shop</div>
       <div class="sheet-desc">Spend coins to grow your operation!</div>
       <div class="shop-list">
+
+        <div class="shop-item">
+          <div class="icon">🧑‍🔧</div>
+          <div class="info">
+            <div class="name">Drivers (${driverCount}${canHire ? '' : ' MAX'})</div>
+            <div class="detail">${driverCount === 0
+              ? 'Hire helpers to auto-deliver water!'
+              : `${driverCount} working &middot; tap to manage`}</div>
+          </div>
+          <button class="buy" data-act="open-drivers" style="background:var(--water);">
+            Manage
+          </button>
+        </div>
+
+        ${canHire ? `
+        <div class="shop-item">
+          <div class="icon">➕</div>
+          <div class="info">
+            <div class="name">Hire ${driverCount === 0 ? 'first ' : 'another '}driver</div>
+            <div class="detail">Auto-fetches water and delivers to neediest villages</div>
+          </div>
+          <button class="buy" data-act="hire-driver" data-refresh-btn="hire-driver">
+            ${hireCost}🪙
+          </button>
+        </div>` : ''}
 
         ${nextTruck ? `
         <div class="shop-item">
@@ -1185,6 +1243,75 @@
         state.coins < rateCost);
       setDisabled(sheetContent.querySelector('[data-refresh-btn="buy-store"]'),
         state.coins < storeCost);
+      setDisabled(sheetContent.querySelector('[data-refresh-btn="hire-driver"]'),
+        state.coins < hireCost);
+    };
+    state.openSheetRefresh();
+  }
+
+  // Driver management sheet: list each hired driver, show their status,
+  // and let the player upgrade their truck independently.
+  function openDrivers() {
+    const items = state.drivers.length === 0
+      ? `<div class="shop-item"><div class="info"><div class="name">No drivers yet</div><div class="detail">Hire one from the shop!</div></div></div>`
+      : state.drivers.map((d, i) => {
+          const tier = TRUCK_TIERS[d.tier];
+          const next = TRUCK_TIERS[d.tier + 1];
+          const upCost = next ? COSTS.truckUpgrade(d.tier) : null;
+          return `
+          <div class="shop-item">
+            <div class="icon" style="position:relative;">
+              ${tier.emoji}
+              <div style="position:absolute; top:0; left:0; width:14px; height:14px; border-radius:50%; background:${d.badge}; border:2px solid var(--brown);"></div>
+            </div>
+            <div class="info">
+              <div class="name">${d.name} &middot; ${tier.name}</div>
+              <div class="detail" data-refresh-text="driver-status-${i}"></div>
+            </div>
+            ${next ? `
+              <button class="buy" data-act="upgrade-driver" data-i="${i}" data-refresh-btn="upgrade-driver-${i}">
+                ⬆ ${upCost}🪙
+              </button>
+            ` : `<button class="buy" disabled>MAX</button>`}
+          </div>
+        `;
+        }).join('');
+
+    openSheet(`
+      <div class="sheet-title">🧑‍🔧 Drivers</div>
+      <div class="sheet-desc">Drivers auto-fetch water from your pumps and deliver it to the thirstiest villages.</div>
+      <div class="shop-list">${items}</div>
+      <div style="height:10px"></div>
+      <div class="sheet-actions">
+        <button class="btn shop-btn" data-act="shop">⬅ Back to Shop</button>
+        <button class="btn cancel" data-act="close">Close</button>
+      </div>
+    `);
+
+    state.openSheetRefresh = () => {
+      state.drivers.forEach((d, i) => {
+        const tier = TRUCK_TIERS[d.tier];
+        const next = TRUCK_TIERS[d.tier + 1];
+        let status;
+        if (d.state === 'idle') {
+          status = '💤 Idle (no work available)';
+        } else if (d.state === 'toPump') {
+          status = `→ 🚰 Heading to pump (${Math.floor(d.water)}/${tier.cap} L)`;
+        } else if (d.state === 'toVillage') {
+          const v = d.targetObj;
+          status = `→ 🏘️ Delivering ${Math.floor(d.water)} L to ${v ? v.name : '...'}`;
+        } else if (d.state === 'toBase') {
+          status = `← Returning (${Math.floor(d.water)} L on board)`;
+        } else {
+          status = '...';
+        }
+        setText(sheetContent.querySelector(`[data-refresh-text="driver-status-${i}"]`), status);
+        if (next) {
+          const cost = COSTS.truckUpgrade(d.tier);
+          setDisabled(sheetContent.querySelector(`[data-refresh-btn="upgrade-driver-${i}"]`),
+            state.coins < cost);
+        }
+      });
     };
     state.openSheetRefresh();
   }
@@ -1206,6 +1333,9 @@
     if (act === 'buy-slot')  return buySlot();
     if (act === 'buy-rate')  return buyRate();
     if (act === 'buy-store') return buyStore();
+    if (act === 'open-drivers') return openDrivers();
+    if (act === 'hire-driver') return hireDriver();
+    if (act === 'upgrade-driver') return upgradeDriver(i);
     if (act === 'accept-donation') {
       const amount = parseInt(t.dataset.amount, 10) || 0;
       state.coins += amount;
@@ -1328,6 +1458,31 @@
     openShop();
   }
 
+  function hireDriver() {
+    const n = state.drivers.length;
+    if (n >= MAX_DRIVERS) { toast('Maximum drivers hired!'); return; }
+    const cost = DRIVER_HIRE_COST(n);
+    if (state.coins < cost) return;
+    state.coins -= cost;
+    const d = makeDriver(n);
+    state.drivers.push(d);
+    toast(`${d.name} hired! 🧑‍🔧`);
+    openShop();
+  }
+
+  function upgradeDriver(i) {
+    const d = state.drivers[i];
+    if (!d) return;
+    const next = TRUCK_TIERS[d.tier + 1];
+    if (!next) return;
+    const cost = COSTS.truckUpgrade(d.tier);
+    if (state.coins < cost) return;
+    state.coins -= cost;
+    d.tier++;
+    toast(`${d.name} upgraded to ${next.name}! ${next.emoji}`);
+    openDrivers();
+  }
+
   // ---------- Village growth & spawning ----------
   // Grow a village by +1 population. Preserve absolute stored water
   // so the thirst ratio naturally drops — "they're spread thinner now"
@@ -1435,44 +1590,87 @@
 
     // Truck movement
     const tr = state.truck;
-    const t = currentTruck();
     tr.waggle += dt * 10;
-    if (tr.state !== 'idle') {
-      const dx = tr.targetX - tr.x;
-      const dy = tr.targetY - tr.y;
-      const d = Math.hypot(dx, dy);
-      if (d > 2) {
-        const move = t.speed * dt;
-        if (move >= d) {
-          tr.x = tr.targetX;
-          tr.y = tr.targetY;
-          onTruckArrive();
-        } else {
-          tr.x += dx / d * move;
-          tr.y += dy / d * move;
-        }
-      } else {
-        onTruckArrive();
-      }
+    moveVehicle(tr, currentTruck().speed, dt);
+
+    // Drivers: each operates independently.
+    for (const d of state.drivers) {
+      d.waggle += dt * 10;
+      const tier = TRUCK_TIERS[d.tier];
+      moveVehicle(d, tier.speed, dt);
+      driverThink(d, dt);
     }
 
     // Bob animations
     for (const s of state.spots) s.bob += dt * 2;
   }
 
-  function onTruckArrive() {
-    const tr = state.truck;
-    const t = currentTruck();
+  // Generalized vehicle movement. When the vehicle reaches its target,
+  // dispatches to onArrive() so loading/delivering logic runs.
+  function moveVehicle(tr, speed, dt) {
+    if (tr.state === 'idle') return;
+    const dx = tr.targetX - tr.x;
+    const dy = tr.targetY - tr.y;
+    const d = Math.hypot(dx, dy);
+    if (d > 2) {
+      const move = speed * dt;
+      if (move >= d) {
+        tr.x = tr.targetX;
+        tr.y = tr.targetY;
+        onVehicleArrive(tr);
+      } else {
+        tr.x += dx / d * move;
+        tr.y += dy / d * move;
+      }
+    } else {
+      onVehicleArrive(tr);
+    }
+  }
+
+  // Capacity for a vehicle, whether player truck (uses state.truckTier)
+  // or a driver (uses their own .tier).
+  function vehicleCap(tr) {
+    if (tr === state.truck) return currentTruck().cap;
+    return TRUCK_TIERS[tr.tier].cap;
+  }
+  function vehicleEmoji(tr) {
+    if (tr === state.truck) return currentTruck().emoji;
+    return TRUCK_TIERS[tr.tier].emoji;
+  }
+
+  function onVehicleArrive(tr) {
+    const cap = vehicleCap(tr);
+    const isPlayer = (tr === state.truck);
     if (tr.state === 'toPump') {
       // Load water
       const p = tr.targetObj;
-      const space = t.cap - tr.water;
+      // Pump may have been removed (e.g. future feature) — guard it.
+      if (!p || !state.pumps.includes(p)) {
+        tr.state = 'toBase';
+        tr.targetX = state.base.x; tr.targetY = state.base.y;
+        tr.targetObj = null;
+        return;
+      }
+      const space = cap - tr.water;
       const take = Math.min(space, p.water);
       p.water -= take;
       tr.water += take;
-      addFloater(`+${Math.floor(take)}💧`, tr.x, tr.y - 30, 'water');
-      // Head back to base (so it feels anchored)
-      if (take > 0) toast(`Loaded ${Math.floor(take)} L`);
+      if (take > 0) {
+        addFloater(`+${Math.floor(take)}💧`, tr.x, tr.y - 30, 'water');
+        if (isPlayer) toast(`Loaded ${Math.floor(take)} L`);
+      }
+      // Player heads back to base; drivers go straight to delivering if
+      // they have water and a needy village exists, so they stay efficient.
+      if (!isPlayer && tr.water > 0) {
+        const target = pickNeediestVillage();
+        if (target) {
+          tr.state = 'toVillage';
+          tr.targetObj = target;
+          tr.targetX = target.x;
+          tr.targetY = target.y;
+          return;
+        }
+      }
       tr.state = 'toBase';
       tr.targetX = state.base.x;
       tr.targetY = state.base.y;
@@ -1480,29 +1678,47 @@
     } else if (tr.state === 'toVillage') {
       // Deliver only what the village has room for. Surplus stays on the truck.
       const v = tr.targetObj;
-      const spaceL = (1 - v.thirst) * v.capacity;       // liters the village can still hold
+      if (!v || !state.villages.includes(v)) {
+        tr.state = 'toBase';
+        tr.targetX = state.base.x; tr.targetY = state.base.y;
+        tr.targetObj = null;
+        return;
+      }
+      const spaceL = (1 - v.thirst) * v.capacity;
       const delivered = Math.min(tr.water, spaceL);
       const thirstBefore = v.thirst;
       tr.water -= delivered;
       v.thirst = Math.min(1, v.thirst + delivered / v.capacity);
 
       if (delivered > 0.5) {
-        // Coin payout scales with how thirsty they WERE when we arrived (up to 2.5x).
         const bonusMult = 1 + (1 - thirstBefore) * 1.5;
         const payout = Math.floor(delivered * 2 * bonusMult);
         state.coins += payout;
         state.helped += Math.floor(delivered);
         addFloater(`+${payout}🪙`, v.x, v.y - 40, 'coin');
         addFloater('❤️', v.x + 20, v.y - 60, 'happy');
-        const leftover = Math.floor(tr.water);
-        const msg = leftover > 0
-          ? `Delivered ${Math.floor(delivered)} L — ${leftover} L still on board`
-          : `Delivered ${Math.floor(delivered)} L to ${v.name}!`;
-        toast(msg);
-      } else {
+        if (isPlayer) {
+          const leftover = Math.floor(tr.water);
+          const msg = leftover > 0
+            ? `Delivered ${Math.floor(delivered)} L — ${leftover} L still on board`
+            : `Delivered ${Math.floor(delivered)} L to ${v.name}!`;
+          toast(msg);
+        }
+      } else if (isPlayer) {
         toast(`${v.name} is already full!`);
       }
 
+      // If a driver still has water after delivery, find another needy village.
+      if (!isPlayer && tr.water > 0.5) {
+        const target = pickNeediestVillage(v);
+        if (target) {
+          tr.state = 'toVillage';
+          tr.targetObj = target;
+          tr.targetX = target.x;
+          tr.targetY = target.y;
+          return;
+        }
+      }
       tr.state = 'toBase';
       tr.targetX = state.base.x;
       tr.targetY = state.base.y;
@@ -1512,6 +1728,66 @@
       tr.x = state.base.x;
       tr.y = state.base.y;
     }
+  }
+
+  // ---------- Driver AI ----------
+  // Drivers think periodically when idle: if they have water, find the
+  // neediest village; if empty, find the best pump to fetch from.
+  function driverThink(d, dt) {
+    if (d.state !== 'idle') return;
+    d.idleTimer -= dt;
+    if (d.idleTimer > 0) return;
+    d.idleTimer = 0.4;  // re-evaluate every ~0.4s while idle
+
+    if (d.water > 0.5) {
+      // Has water: find a village that has room.
+      const target = pickNeediestVillage();
+      if (target) {
+        d.state = 'toVillage';
+        d.targetObj = target;
+        d.targetX = target.x;
+        d.targetY = target.y;
+        return;
+      }
+      // No needy villages — sit tight.
+      return;
+    }
+
+    // Empty: find a pump with water to collect from.
+    // Score = water available, minus a small distance penalty so they
+    // prefer nearby full pumps over far full ones.
+    let best = null, bestScore = 0.5; // need at least 0.5L to bother
+    for (const p of state.pumps) {
+      if (p.water < 1) continue;
+      const s = state.spots[p.spotIdx];
+      const dist = Math.hypot(s.x - d.x, s.y - d.y);
+      const score = p.water - dist * 0.005;
+      if (score > bestScore) { bestScore = score; best = p; }
+    }
+    if (best) {
+      const s = state.spots[best.spotIdx];
+      d.state = 'toPump';
+      d.targetObj = best;
+      d.targetX = s.x;
+      d.targetY = s.y;
+    }
+    // else: no pumps with water available; keep waiting.
+  }
+
+  // Pick the neediest village (lowest thirst) that still has room.
+  // Optionally exclude one (e.g. the village we just delivered to).
+  function pickNeediestVillage(exclude) {
+    let best = null, bestScore = Infinity;
+    for (const v of state.villages) {
+      if (v === exclude) continue;
+      if (v.thirst >= 0.99) continue;  // full
+      // Score: lower thirst = more urgent (lower score wins).
+      // Add a tiny distance bias so drivers don't all converge on
+      // the same far village simultaneously.
+      const score = v.thirst;
+      if (score < bestScore) { bestScore = score; best = v; }
+    }
+    return best;
   }
 
   // ---------- Rendering ----------
@@ -1836,8 +2112,13 @@
   }
 
   function drawTruck() {
-    const tr = state.truck;
-    const t = currentTruck();
+    drawVehicle(state.truck, currentTruck(), null);
+    for (const d of state.drivers) {
+      drawVehicle(d, TRUCK_TIERS[d.tier], d.badge);
+    }
+  }
+
+  function drawVehicle(tr, tier, badge) {
     const { x, y } = tr;
     // Shadow
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
@@ -1849,11 +2130,22 @@
     ctx.font = '32px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(t.emoji, x, y + bob);
+    ctx.fillText(tier.emoji, x, y + bob);
+
+    // Driver badge: small colored dot above-left so you can see who's who.
+    if (badge) {
+      ctx.fillStyle = badge;
+      ctx.strokeStyle = '#3D2817';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(x - 15, y - 13 + bob, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
 
     // Water indicator above (if carrying)
     if (tr.water > 0) {
-      const pct = tr.water / t.cap;
+      const pct = tr.water / tier.cap;
       ctx.fillStyle = 'rgba(255,255,255,0.8)';
       roundRect(x - 16, y - 26, 32, 6, 3, true, false);
       ctx.fillStyle = '#2C8C99';
