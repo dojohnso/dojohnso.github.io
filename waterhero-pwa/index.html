@@ -748,6 +748,7 @@
       targetY: state.base.y,
       state: 'idle',         // idle | toPump | toVillage | toBase
       targetObj: null,
+      plannedVillage: null,  // when state==='toPump', the village we plan to deliver to next
       water: 0,
       waggle: Math.random() * Math.PI * 2,
       tier: 0,               // index into TRUCK_TIERS, like player's truckTier
@@ -1296,7 +1297,8 @@
         if (d.state === 'idle') {
           status = '💤 Idle (no work available)';
         } else if (d.state === 'toPump') {
-          status = `→ 🚰 Heading to pump (${Math.floor(d.water)}/${tier.cap} L)`;
+          const dest = d.plannedVillage ? ` for ${d.plannedVillage.name}` : '';
+          status = `→ 🚰 Fetching water${dest}`;
         } else if (d.state === 'toVillage') {
           const v = d.targetObj;
           status = `→ 🏘️ Delivering ${Math.floor(d.water)} L to ${v ? v.name : '...'}`;
@@ -1646,6 +1648,7 @@
       const p = tr.targetObj;
       // Pump may have been removed (e.g. future feature) — guard it.
       if (!p || !state.pumps.includes(p)) {
+        tr.plannedVillage = null;
         tr.state = 'toBase';
         tr.targetX = state.base.x; tr.targetY = state.base.y;
         tr.targetObj = null;
@@ -1659,10 +1662,17 @@
         addFloater(`+${Math.floor(take)}💧`, tr.x, tr.y - 30, 'water');
         if (isPlayer) toast(`Loaded ${Math.floor(take)} L`);
       }
-      // Player heads back to base; drivers go straight to delivering if
-      // they have water and a needy village exists, so they stay efficient.
+      // Player heads back to base; drivers head straight to their
+      // planned delivery village (decided when they left base). If the
+      // planned village is gone, full, or somehow invalid, fall back to
+      // picking the neediest one — and if even that fails, head home.
       if (!isPlayer && tr.water > 0) {
-        const target = pickNeediestVillage(null, tr);
+        let target = tr.plannedVillage;
+        const stillViable = target
+          && state.villages.includes(target)
+          && target.thirst < 0.99;
+        if (!stillViable) target = pickNeediestVillage(null, tr);
+        tr.plannedVillage = null;  // consumed; clear regardless
         if (target) {
           tr.state = 'toVillage';
           tr.targetObj = target;
@@ -1671,6 +1681,7 @@
           return;
         }
       }
+      tr.plannedVillage = null;
       tr.state = 'toBase';
       tr.targetX = state.base.x;
       tr.targetY = state.base.y;
@@ -1731,55 +1742,86 @@
   }
 
   // ---------- Driver AI ----------
-  // Drivers think periodically when idle: if they have water, find the
-  // neediest village; if empty, find the best pump to fetch from.
-  //
-  // Claim accounting: when scoring pumps and villages, we subtract the
-  // water/space that other trucks (player + drivers) are already heading
-  // to use. This prevents three idle drivers from all picking the same
-  // half-full pump and arriving to find each other already there.
+  // When idle, drivers plan their full route at base: pick the
+  // (pump, village) pair that maximizes water delivered, weighted by
+  // village urgency and total trip distance. This is better than picking
+  // a pump first and a village later, because:
+  //   - Drivers naturally specialize on lanes (less crisscrossing)
+  //   - We never load water for villages that don't actually need it
+  //   - Different drivers pick different routes when claims overlap
   function driverThink(d, dt) {
     if (d.state !== 'idle') return;
     d.idleTimer -= dt;
     if (d.idleTimer > 0) return;
     d.idleTimer = 0.4;  // re-evaluate every ~0.4s while idle
 
+    const cap = vehicleCap(d);
+
+    // If the driver already has water (e.g. came back to base with
+    // leftover), skip pump planning and just deliver to the neediest
+    // village that has room.
     if (d.water > 0.5) {
-      // Has water: find a village that needs water and isn't already
-      // about to be filled by other en-route trucks.
       const target = pickNeediestVillage(null, d);
       if (target) {
         d.state = 'toVillage';
         d.targetObj = target;
         d.targetX = target.x;
         d.targetY = target.y;
-        return;
       }
-      // No needy villages — sit tight.
-      return;
+      return; // either dispatched or sit idle
     }
 
-    // Empty: find a pump with available water to collect from.
-    // "Available" = water on the pump minus what other inbound trucks
-    // plan to take. So if a Tanker is already heading there to drain it,
-    // this driver will pick a different pump.
-    let best = null, bestScore = 0.5; // need at least 0.5L to bother
+    // Empty: plan a (pump, village) route. Score every viable pair and
+    // pick the best one.
+    let bestScore = -Infinity;
+    let bestPump = null, bestVillage = null;
+
     for (const p of state.pumps) {
-      const avail = pumpAvailableWater(p, d);
-      if (avail < 1) continue;
-      const s = state.spots[p.spotIdx];
-      const dist = Math.hypot(s.x - d.x, s.y - d.y);
-      const score = avail - dist * 0.005;
-      if (score > bestScore) { bestScore = score; best = p; }
+      const pumpAvail = pumpAvailableWater(p, d);
+      if (pumpAvail < 1) continue;
+
+      const ps = state.spots[p.spotIdx];
+
+      for (const v of state.villages) {
+        const villageSpace = villageAvailableSpace(v, d);
+        if (villageSpace < 1) continue;
+
+        // How much water this driver would actually move on this route
+        const litersMoved = Math.min(cap, pumpAvail, villageSpace);
+        if (litersMoved < 1) continue;
+
+        // Trip distance: driver → pump → village (we don't count the
+        // return to base because that's the same regardless of route).
+        const d1 = Math.hypot(ps.x - d.x, ps.y - d.y);
+        const d2 = Math.hypot(v.x - ps.x, v.y - ps.y);
+        const totalDist = d1 + d2;
+
+        // Urgency multiplier: thirstier village = higher score.
+        // 0% thirst → 2.0x, 100% thirst → 1.0x. Same shape as payout bonus.
+        const urgency = 1 + (1 - v.thirst);
+
+        // Score: liters * urgency, with distance penalty.
+        // Distance coefficient 0.01 = 100px of travel costs ~1 liter of
+        // value. Tunable; this feels balanced for the world size.
+        const score = litersMoved * urgency - totalDist * 0.01;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestPump = p;
+          bestVillage = v;
+        }
+      }
     }
-    if (best) {
-      const s = state.spots[best.spotIdx];
+
+    if (bestPump && bestVillage) {
+      const ps = state.spots[bestPump.spotIdx];
       d.state = 'toPump';
-      d.targetObj = best;
-      d.targetX = s.x;
-      d.targetY = s.y;
+      d.targetObj = bestPump;
+      d.plannedVillage = bestVillage;  // claim the village too
+      d.targetX = ps.x;
+      d.targetY = ps.y;
     }
-    // else: no pumps with available water; keep waiting.
+    // else: no useful work right now, stay idle and re-check in 0.4s
   }
 
   // Pick the neediest village that still has room AFTER accounting for
@@ -1825,16 +1867,32 @@
   }
 
   // How much room does this village still have AFTER accounting for
-  // water that's already on the way?  Starts from current empty space
-  // and subtracts the projected delivery from every inbound truck.
+  // water that's already on the way?  Two kinds of incoming claims:
+  //   1. Trucks currently driving to this village to deliver
+  //   2. Trucks driving to a pump but planning to deliver here next
   function villageAvailableSpace(v, self) {
     let space = (1 - v.thirst) * v.capacity;
     for (const tr of allVehicles()) {
       if (tr === self) continue;
-      if (tr.state !== 'toVillage') continue;
-      if (tr.targetObj !== v) continue;
-      const willDeliver = Math.min(tr.water, space);
-      space -= Math.max(0, willDeliver);
+
+      // Direct claim: truck en route to this village
+      if (tr.state === 'toVillage' && tr.targetObj === v) {
+        const willDeliver = Math.min(tr.water, space);
+        space -= Math.max(0, willDeliver);
+      }
+      // Planned claim: driver heading to a pump intends to deliver here
+      else if (tr.state === 'toPump' && tr.plannedVillage === v) {
+        // We don't yet know exactly how much water they'll pick up at
+        // the pump, but a useful estimate is min(truck capacity,
+        // pump availability *for that truck*). Since computing the
+        // exact pump availability for that truck would recurse, we
+        // approximate with their truck capacity — slightly pessimistic
+        // (over-claims) which is fine because it just makes other
+        // drivers pick different villages.
+        const willDeliver = Math.min(vehicleCap(tr), space);
+        space -= Math.max(0, willDeliver);
+      }
+
       if (space <= 0) return 0;
     }
     return space;
