@@ -1,0 +1,1183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1A1F2E">
+<meta name="description" content="Air traffic controller — direct planes to runways before they run out of fuel.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tower Talk">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>Tower Talk · ATC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --sky-top: #FFB088;
+  --sky-mid: #F89F87;
+  --sky-bot: #6FA8D6;
+  --ground: #2E3F3A;
+  --ground-light: #3F5550;
+  --runway: #1A1F2E;
+  --line: #F4D35E;
+  --paper: #F5F1E8;
+  --ink: #1A1F2E;
+  --good: #5DD39E;
+  --warn: #FFB347;
+  --bad: #E63946;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; overflow: hidden; font-family: 'Bricolage Grotesque', system-ui, sans-serif; background: var(--ground); color: var(--paper); user-select: none; -webkit-user-select: none; }
+#game { position: fixed; inset: 0; }
+canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+.hud { position: absolute; top: env(safe-area-inset-top, 12px); left: 12px; right: 12px; display: flex; justify-content: space-between; gap: 8px; pointer-events: none; padding-top: 8px; }
+.stat { background: rgba(26,31,46,0.78); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); padding: 8px 12px; border-radius: 12px; border: 1.5px solid rgba(245,241,232,0.12); color: var(--paper); min-width: 76px; }
+.stat .lbl { font-size: 9px; opacity: 0.55; letter-spacing: 0.14em; text-transform: uppercase; display: block; margin-bottom: 1px; font-weight: 500; }
+.stat .val { font-size: 18px; font-family: 'JetBrains Mono', monospace; font-weight: 700; line-height: 1; }
+.stat.cash .val { color: var(--line); }
+
+.tap-hint { position: absolute; top: 96px; left: 0; right: 0; text-align: center; font-size: 13px; opacity: 0.85; pointer-events: none; transition: opacity 0.4s; font-weight: 600; color: var(--paper); text-shadow: 0 1px 2px rgba(0,0,0,0.5); padding: 0 20px; }
+.tap-hint.fade { opacity: 0; }
+
+.toast { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.8); background: var(--line); color: var(--ink); padding: 14px 22px; border-radius: 14px; font-weight: 800; font-size: 18px; letter-spacing: 0.04em; box-shadow: 0 6px 0 rgba(0,0,0,0.4); pointer-events: none; opacity: 0; transition: opacity 0.25s ease, transform 0.25s ease; z-index: 15; white-space: nowrap; }
+.toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+.bottom-bar { position: absolute; bottom: env(safe-area-inset-bottom, 12px); left: 12px; right: 12px; display: flex; gap: 8px; pointer-events: none; padding-bottom: 8px; }
+.btn { pointer-events: auto; background: var(--paper); color: var(--ink); border: none; padding: 14px 10px; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 14px; border-radius: 14px; box-shadow: 0 4px 0 rgba(0,0,0,0.35); cursor: pointer; transition: transform 0.06s ease, box-shadow 0.06s ease; }
+.bottom-bar .btn { flex: 1; }
+.bottom-bar .btn.icon { flex: 0 0 56px; padding: 14px 0; font-size: 18px; }
+.intro .btn, .gameover .btn { width: 100%; max-width: 280px; padding: 16px 20px; font-size: 16px; }
+.btn:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0,0,0,0.35); }
+.btn.primary { background: var(--line); }
+.btn.danger { background: var(--bad); color: var(--paper); }
+
+.panel { position: absolute; inset: 0; background: rgba(26,31,46,0.94); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); display: flex; flex-direction: column; padding: 24px 18px; gap: 12px; z-index: 20; transform: translateY(100%); transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.3, 1); pointer-events: auto; overflow-y: auto; }
+.panel.open { transform: translateY(0); }
+.panel h2 { font-weight: 800; font-size: 30px; letter-spacing: -0.025em; line-height: 1; }
+.panel .sub { opacity: 0.65; font-size: 14px; margin-bottom: 6px; }
+.upgrades { display: flex; flex-direction: column; gap: 10px; }
+.upgrade { background: rgba(245,241,232,0.06); border: 1.5px solid rgba(245,241,232,0.12); border-radius: 14px; padding: 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.upgrade.maxed { opacity: 0.5; }
+.upgrade .info { flex: 1; min-width: 0; }
+.upgrade .name { font-weight: 700; font-size: 15px; margin-bottom: 2px; }
+.upgrade .desc { opacity: 0.6; font-size: 12px; line-height: 1.35; }
+.upgrade .lvl { font-family: 'JetBrains Mono', monospace; font-size: 10px; opacity: 0.55; margin-top: 4px; letter-spacing: 0.06em; }
+.upgrade button { font-family: 'JetBrains Mono', monospace; font-weight: 700; background: var(--line); color: var(--ink); border: none; padding: 10px 12px; border-radius: 10px; cursor: pointer; min-width: 84px; box-shadow: 0 3px 0 rgba(0,0,0,0.4); font-size: 13px; }
+.upgrade button:disabled { opacity: 0.35; box-shadow: 0 1px 0 rgba(0,0,0,0.4); cursor: not-allowed; }
+.upgrade button:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0,0,0,0.4); }
+
+.gameover { position: absolute; inset: 0; background: rgba(26,31,46,0.95); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); display: none; flex-direction: column; align-items: center; justify-content: center; padding: 30px; z-index: 30; text-align: center; }
+.gameover.show { display: flex; }
+.gameover h1 { font-weight: 800; font-size: 52px; letter-spacing: -0.04em; margin-bottom: 4px; color: var(--bad); line-height: 0.95; }
+.gameover .reason { opacity: 0.75; margin-bottom: 28px; font-size: 15px; max-width: 280px; }
+.gameover .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 320px; margin-bottom: 28px; }
+.gameover .stats-grid .stat { text-align: left; }
+.gameover .btn { max-width: 280px; }
+
+.intro { position: absolute; inset: 0; background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-mid) 50%, var(--sky-bot) 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 30px; z-index: 40; text-align: center; transition: opacity 0.4s; }
+.intro.hide { opacity: 0; pointer-events: none; }
+.intro h1 { font-weight: 800; font-size: 56px; letter-spacing: -0.04em; line-height: 0.9; color: var(--ink); margin-bottom: 8px; }
+.intro h1 small { display: block; font-size: 14px; font-weight: 600; letter-spacing: 0.3em; opacity: 0.55; margin-bottom: 12px; }
+.intro p { color: var(--ink); opacity: 0.75; max-width: 320px; line-height: 1.45; margin-bottom: 28px; font-size: 15px; }
+.intro .legend { display: flex; flex-direction: column; gap: 8px; max-width: 320px; margin-bottom: 28px; font-size: 13px; color: var(--ink); }
+.intro .legend div { display: flex; gap: 10px; align-items: center; }
+.intro .legend span.dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+.intro .btn { max-width: 280px; }
+
+@media (min-height: 800px) {
+  .stat .val { font-size: 20px; }
+  .btn { padding: 16px 12px; font-size: 15px; }
+}
+</style>
+</head>
+<body>
+<div id="game">
+  <canvas id="canvas"></canvas>
+
+  <div class="hud">
+    <div class="stat cash"><span class="lbl">Cash</span><span class="val" id="hud-money">$50</span></div>
+    <div class="stat"><span class="lbl">Saved</span><span class="val" id="hud-saved">0</span></div>
+    <div class="stat"><span class="lbl">Wave</span><span class="val" id="hud-wave">1</span></div>
+  </div>
+
+  <div class="tap-hint" id="hint">Tap a circling plane, then tap a runway</div>
+
+  <div class="toast" id="toast"></div>
+
+  <div class="bottom-bar">
+    <button class="btn" id="btn-upgrade">⚙ Upgrades</button>
+    <button class="btn primary" id="btn-pause">⏸ Pause</button>
+    <button class="btn icon" id="btn-mute" aria-label="Mute">🔊</button>
+  </div>
+
+  <div class="panel" id="panel">
+    <h2>Airport Upgrades</h2>
+    <p class="sub">Spend cash to expand your operation.</p>
+    <div class="upgrades" id="upgrades"></div>
+    <button class="btn" id="btn-close" style="margin-top: 12px;">Back to Tower</button>
+  </div>
+
+  <div class="gameover" id="gameover">
+    <h1 id="go-title">CRASH!</h1>
+    <p class="reason" id="go-reason"></p>
+    <div class="stats-grid">
+      <div class="stat"><span class="lbl">Planes Saved</span><span class="val" id="go-saved">0</span></div>
+      <div class="stat"><span class="lbl">Best Wave</span><span class="val" id="go-wave">0</span></div>
+    </div>
+    <button class="btn primary" id="btn-restart">Try Again</button>
+  </div>
+
+  <div class="intro" id="intro">
+    <h1><small>TOWER TALK</small>Air Traffic<br>Controller</h1>
+    <p>Direct planes to runways before they run out of fuel. Tap a plane, then tap a runway.</p>
+    <div class="legend">
+      <div><span class="dot" style="background:#5DD39E"></span> Inbound — circles in sky, fuel ticking down</div>
+      <div><span class="dot" style="background:#FFB347"></span> Outbound — waits at gate, less urgent</div>
+      <div><span class="dot" style="background:#F4D35E"></span> Runway — taps to assign selected plane</div>
+    </div>
+    <button class="btn primary" id="btn-start">Start Shift</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ============ AUDIO ============
+let audioCtx = null;
+let muted = false;
+try { muted = localStorage.getItem('tt-muted') === '1'; } catch(e) {}
+
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) { return; }
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function tone(freq, dur, type = 'sine', vol = 0.06, attack = 0.005) {
+  if (muted || !audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  osc.connect(g); g.connect(audioCtx.destination);
+  const t = audioCtx.currentTime;
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(vol, t + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.start(t); osc.stop(t + dur);
+}
+
+function sweep(f1, f2, dur, type = 'sine', vol = 0.06) {
+  if (muted || !audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  osc.type = type;
+  osc.connect(g); g.connect(audioCtx.destination);
+  const t = audioCtx.currentTime;
+  osc.frequency.setValueAtTime(f1, t);
+  osc.frequency.exponentialRampToValueAtTime(f2, t + dur);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(vol, t + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.start(t); osc.stop(t + dur);
+}
+
+function noiseBurst(dur, vol = 0.08, filterFreq = 800) {
+  if (muted || !audioCtx) return;
+  const buf = audioCtx.createBuffer(1, Math.max(1, audioCtx.sampleRate * dur), audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const s = audioCtx.createBufferSource();
+  s.buffer = buf;
+  const f = audioCtx.createBiquadFilter();
+  f.type = 'lowpass';
+  f.frequency.value = filterFreq;
+  const g = audioCtx.createGain();
+  s.connect(f); f.connect(g); g.connect(audioCtx.destination);
+  const t = audioCtx.currentTime;
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.start(t);
+}
+
+const SFX = {
+  select:  () => tone(660, 0.05, 'triangle', 0.035),
+  assign:  () => { tone(523, 0.05, 'triangle', 0.05); setTimeout(() => tone(784, 0.08, 'triangle', 0.05), 55); },
+  landing: () => { tone(659, 0.09, 'sine', 0.06); setTimeout(() => tone(880, 0.09, 'sine', 0.06), 90); setTimeout(() => tone(1047, 0.16, 'sine', 0.06), 180); },
+  takeoff: () => sweep(180, 560, 0.45, 'sawtooth', 0.035),
+  crash:   () => { noiseBurst(0.4, 0.09, 500); sweep(220, 50, 0.5, 'sawtooth', 0.07); },
+  wave:    () => { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => tone(f, 0.1, 'triangle', 0.05), i * 70)); },
+  error:   () => tone(140, 0.1, 'square', 0.035),
+  upgrade: () => { [784, 1047, 1319].forEach((f, i) => setTimeout(() => tone(f, 0.08, 'triangle', 0.055), i * 55)); },
+  bail:    () => sweep(440, 180, 0.35, 'sine', 0.04),
+};
+
+function setMuted(m) {
+  muted = m;
+  try { localStorage.setItem('tt-muted', m ? '1' : '0'); } catch(e) {}
+  const btn = document.getElementById('btn-mute');
+  if (btn) btn.textContent = muted ? '🔇' : '🔊';
+}
+
+// ============ CANVAS ============
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W = window.innerWidth, H = window.innerHeight;
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+function resize() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  layoutWorld();
+}
+window.addEventListener('resize', resize);
+
+// ============ STATE ============
+const PLANE_COLORS = ['#FF6B6B', '#F4D35E', '#5DD39E', '#4ECDC4', '#9381FF', '#FFB347', '#FF8FB1'];
+let nextId = 1;
+let lastT = 0;
+
+const state = {
+  money: 50,
+  saved: 0,
+  crashed: 0,
+  wave: 1,
+  waveTimer: 0,
+  spawnTimer: 1500,
+  spawnInterval: 6500,
+  paused: false,
+  over: false,
+  started: false,
+  selected: null,
+  planes: [],
+  runways: [],
+  particles: [],
+  holdingCenters: [],
+  gateY: 0,
+  upgrades: { runway: 1, crew: 0, autoTower: 0, holding: 0, apron: 0, radar: 0 },
+  autoTimer: 0,
+  bestWave: 1,
+  shake: 0,
+};
+
+// === Upgrade defs ===
+const UPGRADES = [
+  { key: 'runway', name: 'Build Runway', desc: 'More runways = more throughput.',
+    cost: lvl => 200 + lvl * 250, max: 3, lvlText: lvl => `Runways: ${lvl}` },
+  { key: 'crew', name: 'Ground Crew', desc: 'Cuts runway cooldown by 0.8s.',
+    cost: lvl => 120 + lvl * 80, max: 4, lvlText: lvl => `Crews hired: ${lvl}` },
+  { key: 'autoTower', name: 'Auto-Tower', desc: 'Clears the most urgent plane every 14s — inbound first, then gates.',
+    cost: lvl => 280 + lvl * 220, max: 2, lvlText: lvl => `Assistants: ${lvl}` },
+  { key: 'holding', name: 'Bigger Airspace', desc: '+2 holding pattern slots before chaos.',
+    cost: lvl => 90 + lvl * 70, max: 4, lvlText: lvl => `Slots: +${lvl * 2}` },
+  { key: 'apron', name: 'Wider Apron', desc: '+1 outbound gate slot.',
+    cost: lvl => 70 + lvl * 60, max: 4, lvlText: lvl => `Extra gates: ${lvl}` },
+  { key: 'radar', name: 'Long-Range Radar', desc: '+30% fuel on new arrivals.',
+    cost: lvl => 130 + lvl * 110, max: 3, lvlText: lvl => `Range: +${lvl * 30}%` },
+];
+
+// ============ LAYOUT ============
+function layoutWorld() {
+  const horizon = H * 0.55;
+  const runwayCount = state.upgrades.runway;
+  const runwaySpacing = Math.min(56, (H * 0.32) / runwayCount);
+  const runwayH = Math.max(28, runwaySpacing - 18);
+  const topY = horizon + 24;
+  const margin = W * 0.07;
+
+  for (let i = 0; i < runwayCount; i++) {
+    if (!state.runways[i]) state.runways[i] = { id: i, busy: false, cooldown: 0, cooldownMax: 0 };
+    const r = state.runways[i];
+    r.x = margin;
+    r.y = topY + i * runwaySpacing;
+    r.w = W - margin * 2;
+    r.h = runwayH;
+    r.cx = r.x + r.w / 2;
+    r.cy = r.y + r.h / 2;
+  }
+  while (state.runways.length > runwayCount) state.runways.pop();
+
+  state.gateY = topY + runwayCount * runwaySpacing + 18;
+
+  // Two holding patterns in upper sky
+  const r = Math.min(W, H) * 0.12;
+  state.holdingCenters = [
+    { x: W * 0.30, y: H * 0.24, r },
+    { x: W * 0.70, y: H * 0.30, r },
+  ];
+}
+
+// ============ HELPERS ============
+function rand(min, max) { return min + Math.random() * (max - min); }
+function pickColor() { return PLANE_COLORS[Math.floor(Math.random() * PLANE_COLORS.length)]; }
+function fmt$(n) { return '$' + Math.floor(n); }
+function maxInbound() { return 5 + state.upgrades.holding * 2; }
+function maxOutbound() { return 4 + state.upgrades.apron; }
+function runwayCooldownMax() { return Math.max(1.4, 4 - state.upgrades.crew * 0.8); }
+function fuelMaxFor() { return 28 * (1 + state.upgrades.radar * 0.3); }
+
+// ============ PLANES ============
+function spawnInbound() {
+  const inbound = state.planes.filter(p => p.type === 'inbound').length;
+  if (inbound >= maxInbound()) {
+    // Overflow! Game over
+    triggerGameOver('Holding pattern overflow — sky too crowded.', 'AIRSPACE FULL');
+    return;
+  }
+  const center = state.holdingCenters[Math.floor(Math.random() * state.holdingCenters.length)];
+  const startAngle = Math.random() * Math.PI * 2;
+  const fuel = fuelMaxFor();
+  state.planes.push({
+    id: nextId++,
+    type: 'inbound',
+    state: 'holding',
+    color: pickColor(),
+    x: center.x + Math.cos(startAngle) * center.r,
+    y: center.y + Math.sin(startAngle) * center.r,
+    angle: startAngle + Math.PI / 2,
+    fuel: fuel,
+    fuelMax: fuel,
+    holdingCenter: center,
+    holdingAngle: startAngle,
+    holdingSpeed: rand(0.32, 0.46),
+    runway: null,
+    progress: 0,
+    targetX: 0, targetY: 0,
+  });
+}
+
+function spawnOutbound() {
+  const outbound = state.planes.filter(p => p.type === 'outbound').length;
+  if (outbound >= maxOutbound()) return; // Soft cap, just don't spawn
+  const idx = state.planes.filter(p => p.type === 'outbound' && p.state === 'waiting').length;
+  state.planes.push({
+    id: nextId++,
+    type: 'outbound',
+    state: 'waiting',
+    color: pickColor(),
+    x: 30 + idx * 44,
+    y: state.gateY + 22,
+    angle: -Math.PI / 2,
+    fuel: 60, // patience
+    fuelMax: 60,
+    runway: null,
+    progress: 0,
+    targetX: 30 + idx * 44,
+    targetY: state.gateY + 22,
+    gateIdx: idx,
+  });
+}
+
+function reflowGates() {
+  const waiting = state.planes.filter(p => p.type === 'outbound' && p.state === 'waiting');
+  waiting.forEach((p, i) => {
+    p.gateIdx = i;
+    p.targetX = 30 + i * 44;
+    p.targetY = state.gateY + 22;
+  });
+}
+
+// ============ INPUT ============
+function getPos(e) {
+  const t = e.touches ? e.touches[0] : e;
+  const rect = canvas.getBoundingClientRect();
+  return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+}
+
+function findPlaneAt(x, y) {
+  const HIT = 30;
+  for (let i = state.planes.length - 1; i >= 0; i--) {
+    const p = state.planes[i];
+    if (p.state === 'done' || p.state === 'landing' || p.state === 'takingOff' || p.state === 'climbing' || p.state === 'taxiing') continue;
+    const dx = p.x - x, dy = p.y - y;
+    if (dx * dx + dy * dy < HIT * HIT) return p;
+  }
+  return null;
+}
+
+function findRunwayAt(x, y) {
+  for (const r of state.runways) {
+    if (x >= r.x && x <= r.x + r.w && y >= r.y - 8 && y <= r.y + r.h + 8) return r;
+  }
+  return null;
+}
+
+function handleTap(e) {
+  if (state.paused || state.over || !state.started) return;
+  e.preventDefault();
+  const { x, y } = getPos(e);
+
+  const plane = findPlaneAt(x, y);
+  const runway = findRunwayAt(x, y);
+
+  if (state.selected) {
+    if (runway) {
+      if (assignToRunway(state.selected, runway)) {
+        state.selected = null;
+        hideHint();
+      }
+      // If assignment failed (cooldown/busy), keep the plane selected
+      return;
+    }
+    if (plane && plane !== state.selected) {
+      state.selected = plane;
+      SFX.select();
+      return;
+    }
+    state.selected = null;
+    return;
+  }
+
+  if (plane) {
+    state.selected = plane;
+    SFX.select();
+    return;
+  }
+}
+
+function assignToRunway(plane, runway) {
+  if (runway.busy || runway.cooldown > 0) {
+    state.shake = 0.3;
+    SFX.error();
+    return false;
+  }
+  runway.busy = true;
+  runway.cooldown = runwayCooldownMax();
+  runway.cooldownMax = runway.cooldown;
+  plane.runway = runway;
+  plane.progress = 0;
+  if (plane.type === 'inbound') {
+    plane.state = 'approaching';
+  } else {
+    plane.state = 'taxiing';
+  }
+  SFX.assign();
+  return true;
+}
+
+canvas.addEventListener('pointerdown', handleTap, { passive: false });
+
+// ============ UPDATE ============
+function update(dt) {
+  state.spawnTimer -= dt * 1000;
+  state.waveTimer += dt;
+  state.autoTimer += dt;
+
+  // Wave progression
+  if (state.waveTimer > 28) {
+    state.waveTimer = 0;
+    state.wave++;
+    state.bestWave = Math.max(state.bestWave, state.wave);
+    state.spawnInterval = Math.max(1800, state.spawnInterval - 1000);
+    const bonus = 30 + (state.wave - 1) * 15;
+    state.money += bonus;
+    showToast(`WAVE ${state.wave} · +$${bonus}`);
+    SFX.wave();
+  }
+
+  // Spawn
+  // Active plane count = anything circling, waiting, or in transit
+  const active = state.planes.filter(p =>
+    p.state === 'holding' || p.state === 'waiting' ||
+    p.state === 'approaching' || p.state === 'taxiing'
+  ).length;
+  const floor = 1 + Math.floor(state.wave * 0.6); // wave 1: 1, wave 2: 2, wave 3: 2, wave 4: 3...
+  const belowFloor = active < floor;
+
+  if (state.spawnTimer <= 0 || belowFloor) {
+    state.spawnTimer = state.spawnInterval + rand(-700, 700);
+    if (belowFloor) state.spawnTimer = Math.min(state.spawnTimer, 1500); // tighten next one too
+    // Bias: more inbound at higher waves
+    const inboundChance = 0.55 + Math.min(0.2, state.wave * 0.02);
+    if (Math.random() < inboundChance) spawnInbound();
+    else spawnOutbound();
+  }
+
+  // Auto-tower: holds the timer at interval until a runway frees up,
+  // so you never lose a tick when everything's busy
+  if (state.upgrades.autoTower > 0) {
+    const interval = 14 / state.upgrades.autoTower;
+    if (state.autoTimer >= interval) {
+      if (autoAssign()) {
+        state.autoTimer = 0;
+      } else {
+        state.autoTimer = interval; // pin so we keep retrying every frame
+      }
+    }
+  }
+
+  // Update planes
+  for (const p of state.planes) {
+    updatePlane(p, dt);
+  }
+
+  // Cleanup
+  state.planes = state.planes.filter(p => p.state !== 'done');
+  reflowGates();
+
+  // Runways
+  for (const r of state.runways) {
+    if (r.cooldown > 0) {
+      r.cooldown -= dt;
+      if (r.cooldown <= 0) {
+        r.cooldown = 0;
+        r.busy = false;
+      }
+    }
+  }
+
+  // Particles
+  state.particles = state.particles.filter(pt => {
+    pt.life -= dt;
+    pt.x += pt.vx * dt;
+    pt.y += pt.vy * dt;
+    pt.vy += 30 * dt;
+    return pt.life > 0;
+  });
+
+  if (state.shake > 0) state.shake -= dt;
+}
+
+function autoAssign() {
+  const free = state.runways.find(r => !r.busy && r.cooldown <= 0);
+  if (!free) return false;
+
+  // Priority 1: most urgent inbound (lowest fuel)
+  const holding = state.planes.filter(p => p.type === 'inbound' && p.state === 'holding');
+  if (holding.length > 0) {
+    holding.sort((a, b) => a.fuel - b.fuel);
+    assignToRunway(holding[0], free);
+    return true;
+  }
+
+  // Priority 2: most impatient outbound (lowest patience)
+  const waiting = state.planes.filter(p => p.type === 'outbound' && p.state === 'waiting');
+  if (waiting.length > 0) {
+    waiting.sort((a, b) => a.fuel - b.fuel);
+    assignToRunway(waiting[0], free);
+    return true;
+  }
+
+  return false;
+}
+
+function updatePlane(p, dt) {
+  // Fuel/patience
+  if (p.state === 'holding' || p.state === 'approaching') {
+    p.fuel -= dt;
+    if (p.fuel <= 0) {
+      crashPlane(p);
+      return;
+    }
+  } else if (p.state === 'waiting' || p.state === 'taxiing') {
+    p.fuel -= dt;
+    if (p.fuel <= 0) {
+      // Flies off in a huff
+      p.state = 'done';
+      state.money = Math.max(0, state.money - 8);
+      spawnParticles(p.x, p.y, '#E63946', 6);
+      SFX.bail();
+      reflowGates();
+      return;
+    }
+  }
+
+  switch (p.state) {
+    case 'holding': {
+      const c = p.holdingCenter;
+      p.holdingAngle += p.holdingSpeed * dt;
+      p.x = c.x + Math.cos(p.holdingAngle) * c.r;
+      p.y = c.y + Math.sin(p.holdingAngle) * c.r;
+      p.angle = p.holdingAngle + Math.PI / 2;
+      break;
+    }
+    case 'approaching': {
+      // Fly to start of runway (left edge)
+      const tx = p.runway.x + 18;
+      const ty = p.runway.cy;
+      const dx = tx - p.x, dy = ty - p.y;
+      const dist = Math.hypot(dx, dy);
+      const speed = 280;
+      p.angle = Math.atan2(dy, dx);
+      if (dist < 6) {
+        p.state = 'landing';
+        p.x = tx; p.y = ty;
+        p.angle = 0;
+        p.progress = 0;
+      } else {
+        p.x += (dx / dist) * speed * dt;
+        p.y += (dy / dist) * speed * dt;
+      }
+      break;
+    }
+    case 'landing': {
+      // Roll along runway
+      const startX = p.runway.x + 18;
+      const endX = p.runway.x + p.runway.w - 18;
+      const dur = 1.8;
+      p.progress += dt / dur;
+      const t = Math.min(1, p.progress);
+      // Decelerating curve
+      const eased = 1 - Math.pow(1 - t, 2);
+      p.x = startX + (endX - startX) * eased;
+      p.y = p.runway.cy;
+      p.angle = 0;
+      if (t >= 1) {
+        completeLanding(p);
+      }
+      break;
+    }
+    case 'waiting': {
+      // Settle at gate position
+      const dx = p.targetX - p.x, dy = p.targetY - p.y;
+      p.x += dx * 6 * dt;
+      p.y += dy * 6 * dt;
+      p.angle = -Math.PI / 2;
+      break;
+    }
+    case 'taxiing': {
+      const tx = p.runway.x + 18;
+      const ty = p.runway.cy;
+      const dx = tx - p.x, dy = ty - p.y;
+      const dist = Math.hypot(dx, dy);
+      const speed = 200;
+      p.angle = Math.atan2(dy, dx);
+      if (dist < 6) {
+        p.state = 'takingOff';
+        p.x = tx; p.y = ty;
+        p.angle = 0;
+        p.progress = 0;
+      } else {
+        p.x += (dx / dist) * speed * dt;
+        p.y += (dy / dist) * speed * dt;
+      }
+      break;
+    }
+    case 'takingOff': {
+      const startX = p.runway.x + 18;
+      const endX = p.runway.x + p.runway.w - 18;
+      const dur = 1.6;
+      p.progress += dt / dur;
+      const t = Math.min(1, p.progress);
+      // Accelerating curve
+      const eased = t * t;
+      p.x = startX + (endX - startX) * eased;
+      p.y = p.runway.cy;
+      p.angle = 0;
+      if (t >= 1) {
+        p.state = 'climbing';
+        p.progress = 0;
+        // Free up runway
+        if (p.runway) {
+          p.runway.busy = false;
+          // cooldown still ticks down independently
+        }
+        completeTakeoff(p);
+      }
+      break;
+    }
+    case 'climbing': {
+      // Fly up and away off-screen
+      p.progress += dt;
+      const speed = 320;
+      p.angle = -Math.PI / 4;
+      p.x += Math.cos(p.angle) * speed * dt;
+      p.y += Math.sin(p.angle) * speed * dt;
+      if (p.y < -40 || p.x > W + 40) p.state = 'done';
+      break;
+    }
+  }
+}
+
+function completeLanding(p) {
+  state.saved++;
+  state.money += 18;
+  spawnParticles(p.x, p.y, '#5DD39E', 10);
+  // Free runway, but cooldown still ticking
+  if (p.runway) p.runway.busy = false;
+  p.state = 'done';
+  SFX.landing();
+}
+
+function completeTakeoff(p) {
+  state.saved++;
+  state.money += 10;
+  spawnParticles(p.x, p.y, '#F4D35E', 8);
+  SFX.takeoff();
+}
+
+function crashPlane(p) {
+  state.crashed++;
+  spawnParticles(p.x, p.y, '#E63946', 24, 200);
+  state.shake = 0.6;
+  SFX.crash();
+  triggerGameOver(`A ${p.type} plane ran out of fuel and crashed.`, 'CRASH!');
+  p.state = 'done';
+}
+
+function spawnParticles(x, y, color, count, spread = 80) {
+  for (let i = 0; i < count; i++) {
+    state.particles.push({
+      x, y,
+      vx: rand(-spread, spread),
+      vy: rand(-spread, 20),
+      life: rand(0.5, 1.0),
+      lifeMax: 1.0,
+      color,
+      size: rand(2, 5),
+    });
+  }
+}
+
+function triggerGameOver(reason, title) {
+  if (state.over) return;
+  state.over = true;
+  state.bestWave = Math.max(state.bestWave, state.wave);
+  document.getElementById('go-title').textContent = title;
+  document.getElementById('go-reason').textContent = reason;
+  document.getElementById('go-saved').textContent = state.saved;
+  document.getElementById('go-wave').textContent = state.bestWave;
+  document.getElementById('gameover').classList.add('show');
+}
+
+// ============ RENDER ============
+function render() {
+  let sx = 0, sy = 0;
+  if (state.shake > 0) {
+    sx = rand(-6, 6) * state.shake;
+    sy = rand(-6, 6) * state.shake;
+  }
+  ctx.save();
+  ctx.translate(sx, sy);
+
+  // Sky gradient
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, H * 0.55);
+  skyGrad.addColorStop(0, '#FFB088');
+  skyGrad.addColorStop(0.55, '#F89F87');
+  skyGrad.addColorStop(1, '#6FA8D6');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, W, H * 0.55);
+
+  // Soft sun
+  ctx.fillStyle = 'rgba(255, 220, 180, 0.6)';
+  ctx.beginPath();
+  ctx.arc(W * 0.78, H * 0.18, 50, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Distant clouds
+  ctx.fillStyle = 'rgba(255,255,255,0.18)';
+  for (let i = 0; i < 5; i++) {
+    const cx = (i * W * 0.27 + 40) % W;
+    const cy = H * 0.1 + (i % 2) * 30;
+    cloud(cx, cy, 36);
+  }
+
+  // Ground
+  ctx.fillStyle = '#2E3F3A';
+  ctx.fillRect(0, H * 0.55, W, H * 0.45);
+  // Ground texture
+  ctx.fillStyle = '#3F5550';
+  for (let i = 0; i < 30; i++) {
+    const gx = (i * 79 + 13) % W;
+    const gy = H * 0.55 + ((i * 47) % (H * 0.45));
+    ctx.fillRect(gx, gy, 2, 2);
+  }
+
+  // Holding pattern circles + airspace capacity indicator
+  const inboundCount = state.planes.filter(p => p.type === 'inbound').length;
+  const cap = maxInbound();
+  const fillRatio = cap > 0 ? inboundCount / cap : 0;
+
+  let ringColor, textColor;
+  if (fillRatio < 0.6)       { ringColor = 'rgba(255,255,255,0.20)'; textColor = '#F5F1E8'; }
+  else if (fillRatio < 0.85) { ringColor = 'rgba(255,179,71,0.55)';  textColor = '#FFB347'; }
+  else                       { ringColor = 'rgba(230,57,70,0.65)';   textColor = '#E63946'; }
+
+  ctx.strokeStyle = ringColor;
+  ctx.setLineDash([4, 6]);
+  ctx.lineWidth = fillRatio >= 0.85 ? 2.5 : 1.5;
+  for (const c of state.holdingCenters) {
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.lineWidth = 1;
+
+  // Airspace counter — centered between the two holding patterns
+  const labelY = (state.holdingCenters[0].y + state.holdingCenters[1].y) / 2;
+  const labelText = `AIRSPACE  ${inboundCount}/${cap}`;
+  ctx.font = '700 12px "JetBrains Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const tw = ctx.measureText(labelText).width;
+
+  // Flash effect when critical: pill background flips between dark and red
+  const critical = fillRatio >= 0.85;
+  const flash = critical ? (Math.sin(performance.now() / 180) > 0) : false;
+  const pillBg = flash ? '#E63946' : 'rgba(26,31,46,0.78)';
+  const pillText = flash ? '#FFFFFF' : textColor;
+
+  ctx.fillStyle = pillBg;
+  ctx.beginPath();
+  const padX = 12, padY = 7;
+  const bx = W / 2 - tw / 2 - padX;
+  const by = labelY - padY - 6;
+  const bw = tw + padX * 2;
+  const bh = padY * 2 + 12;
+  ctx.roundRect ? ctx.roundRect(bx, by, bw, bh, 8) : ctx.rect(bx, by, bw, bh);
+  ctx.fill();
+  ctx.fillStyle = pillText;
+  ctx.fillText(labelText, W / 2, labelY);
+  ctx.textBaseline = 'alphabetic';
+
+  // Tower
+  drawTower(W / 2, H * 0.55);
+
+  // Runways
+  for (const r of state.runways) {
+    drawRunway(r);
+  }
+
+  // Gate area
+  drawGateArea();
+
+  // Particles
+  for (const pt of state.particles) {
+    ctx.globalAlpha = Math.max(0, pt.life / pt.lifeMax);
+    ctx.fillStyle = pt.color;
+    ctx.fillRect(pt.x - pt.size / 2, pt.y - pt.size / 2, pt.size, pt.size);
+  }
+  ctx.globalAlpha = 1;
+
+  // Planes (sort: inbound on top of outbound, selected highest)
+  const sorted = [...state.planes].sort((a, b) => {
+    if (a === state.selected) return 1;
+    if (b === state.selected) return -1;
+    return 0;
+  });
+  for (const p of sorted) {
+    drawPlane(p);
+  }
+
+  ctx.restore();
+
+  // Update DOM HUD
+  document.getElementById('hud-money').textContent = fmt$(state.money);
+  document.getElementById('hud-saved').textContent = state.saved;
+  document.getElementById('hud-wave').textContent = state.wave;
+}
+
+function cloud(x, y, r) {
+  ctx.beginPath();
+  ctx.arc(x, y, r * 0.6, 0, Math.PI * 2);
+  ctx.arc(x + r * 0.5, y - r * 0.2, r * 0.5, 0, Math.PI * 2);
+  ctx.arc(x + r * 0.9, y, r * 0.55, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawTower(x, baseY) {
+  ctx.fillStyle = '#F5F1E8';
+  ctx.fillRect(x - 6, baseY - 28, 12, 28);
+  ctx.fillStyle = '#1A1F2E';
+  ctx.fillRect(x - 12, baseY - 38, 24, 12);
+  ctx.fillStyle = '#F4D35E';
+  ctx.fillRect(x - 9, baseY - 35, 18, 6);
+  // Antenna
+  ctx.fillStyle = '#1A1F2E';
+  ctx.fillRect(x - 1, baseY - 50, 2, 12);
+}
+
+function drawRunway(r) {
+  // Body
+  ctx.fillStyle = '#1A1F2E';
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  // Center dashed line
+  ctx.strokeStyle = '#F5F1E8';
+  ctx.setLineDash([14, 12]);
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(r.x + 16, r.cy);
+  ctx.lineTo(r.x + r.w - 16, r.cy);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // Threshold markers
+  ctx.fillStyle = '#F5F1E8';
+  for (let i = 0; i < 3; i++) {
+    ctx.fillRect(r.x + 4, r.y + 5 + i * (r.h - 10) / 2 - 1, 8, 2);
+    ctx.fillRect(r.x + r.w - 12, r.y + 5 + i * (r.h - 10) / 2 - 1, 8, 2);
+  }
+
+  // Cooldown / busy overlay
+  if (r.cooldown > 0) {
+    const pct = r.cooldown / r.cooldownMax;
+    ctx.fillStyle = 'rgba(244, 211, 94, 0.22)';
+    ctx.fillRect(r.x, r.y, r.w * pct, r.h);
+    // Cooldown text
+    ctx.fillStyle = '#F4D35E';
+    ctx.font = '600 11px "JetBrains Mono", monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(r.cooldown.toFixed(1) + 's', r.x + r.w - 8, r.y - 4);
+  }
+
+  // Highlight if a plane is selected and runway is free
+  if (state.selected && !r.busy && r.cooldown <= 0) {
+    ctx.strokeStyle = '#5DD39E';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 4]);
+    ctx.strokeRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4);
+    ctx.setLineDash([]);
+  }
+}
+
+function drawGateArea() {
+  const y = state.gateY;
+  ctx.fillStyle = '#3F5550';
+  ctx.fillRect(0, y, W, 50);
+  // Gate label
+  ctx.fillStyle = 'rgba(245,241,232,0.45)';
+  ctx.font = '600 10px "JetBrains Mono", monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('GATES', 12, y + 14);
+}
+
+function drawPlane(p) {
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(p.angle);
+
+  // Selection ring
+  if (state.selected === p) {
+    ctx.strokeStyle = '#F4D35E';
+    ctx.lineWidth = 3;
+    const pulse = 1 + Math.sin(performance.now() / 150) * 0.08;
+    ctx.beginPath();
+    ctx.arc(0, 0, 22 * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.beginPath();
+  ctx.ellipse(2, 4, 14, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body
+  ctx.fillStyle = p.color;
+  ctx.beginPath();
+  ctx.moveTo(14, 0);
+  ctx.lineTo(8, -4);
+  ctx.lineTo(-10, -4);
+  ctx.lineTo(-12, -2);
+  ctx.lineTo(-12, 2);
+  ctx.lineTo(-10, 4);
+  ctx.lineTo(8, 4);
+  ctx.closePath();
+  ctx.fill();
+
+  // Wings
+  ctx.fillStyle = '#F5F1E8';
+  ctx.fillRect(-3, -10, 6, 20);
+  // Tail
+  ctx.fillRect(-11, -7, 4, 14);
+
+  // Cockpit
+  ctx.fillStyle = '#1A1F2E';
+  ctx.fillRect(7, -2, 4, 4);
+
+  ctx.restore();
+
+  // Fuel/patience bar (only for actionable states)
+  if (p.state === 'holding' || p.state === 'waiting' || p.state === 'approaching' || p.state === 'taxiing') {
+    const pct = Math.max(0, p.fuel / p.fuelMax);
+    const barW = 26;
+    const barX = p.x - barW / 2;
+    const barY = p.y - 22;
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(barX - 1, barY - 1, barW + 2, 5);
+    let color;
+    if (p.type === 'inbound') {
+      color = pct > 0.5 ? '#5DD39E' : pct > 0.25 ? '#FFB347' : '#E63946';
+    } else {
+      color = pct > 0.4 ? '#FFB347' : '#E63946';
+    }
+    ctx.fillStyle = color;
+    ctx.fillRect(barX, barY, barW * pct, 3);
+  }
+}
+
+// ============ LOOP ============
+function loop(t) {
+  const dt = Math.min(0.05, (t - lastT) / 1000);
+  lastT = t;
+  if (!state.paused && !state.over && state.started) update(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+
+// ============ UI ============
+const panel = document.getElementById('panel');
+const upgradesList = document.getElementById('upgrades');
+const btnUpgrade = document.getElementById('btn-upgrade');
+const btnClose = document.getElementById('btn-close');
+const btnPause = document.getElementById('btn-pause');
+const btnRestart = document.getElementById('btn-restart');
+const btnStart = document.getElementById('btn-start');
+const intro = document.getElementById('intro');
+const hint = document.getElementById('hint');
+
+function renderUpgrades() {
+  upgradesList.innerHTML = '';
+  for (const u of UPGRADES) {
+    const lvl = state.upgrades[u.key];
+    const maxed = lvl >= u.max;
+    const cost = u.cost(lvl);
+    const canAfford = state.money >= cost && !maxed;
+    const div = document.createElement('div');
+    div.className = 'upgrade' + (maxed ? ' maxed' : '');
+    div.innerHTML = `
+      <div class="info">
+        <div class="name">${u.name}</div>
+        <div class="desc">${u.desc}</div>
+        <div class="lvl">${u.lvlText(lvl)}${maxed ? ' · MAX' : ''}</div>
+      </div>
+      <button data-key="${u.key}" ${canAfford ? '' : 'disabled'}>${maxed ? 'MAX' : '$' + cost}</button>
+    `;
+    upgradesList.appendChild(div);
+  }
+  upgradesList.querySelectorAll('button').forEach(b => {
+    b.addEventListener('click', () => buyUpgrade(b.dataset.key));
+  });
+}
+
+function buyUpgrade(key) {
+  const u = UPGRADES.find(x => x.key === key);
+  const lvl = state.upgrades[key];
+  if (lvl >= u.max) return;
+  const cost = u.cost(lvl);
+  if (state.money < cost) return;
+  state.money -= cost;
+  state.upgrades[key]++;
+  SFX.upgrade();
+  // Apply
+  if (key === 'runway') layoutWorld();
+  if (key === 'apron' || key === 'holding') layoutWorld();
+  renderUpgrades();
+}
+
+btnUpgrade.addEventListener('click', () => {
+  panel.classList.add('open');
+  state.paused = true;
+  btnPause.textContent = '▶ Resume';
+  renderUpgrades();
+});
+btnClose.addEventListener('click', () => {
+  panel.classList.remove('open');
+  state.paused = false;
+  btnPause.textContent = '⏸ Pause';
+});
+btnPause.addEventListener('click', () => {
+  if (panel.classList.contains('open')) return;
+  state.paused = !state.paused;
+  btnPause.textContent = state.paused ? '▶ Resume' : '⏸ Pause';
+});
+btnRestart.addEventListener('click', restart);
+btnStart.addEventListener('click', () => {
+  initAudio();
+  intro.classList.add('hide');
+  state.started = true;
+  seedStart();
+  setTimeout(() => intro.style.display = 'none', 400);
+});
+
+const btnMute = document.getElementById('btn-mute');
+btnMute.textContent = muted ? '🔇' : '🔊';
+btnMute.addEventListener('click', () => {
+  initAudio();
+  setMuted(!muted);
+});
+
+// Also kick audio on first canvas tap (iOS sometimes needs reactivation)
+canvas.addEventListener('pointerdown', () => initAudio(), { once: true });
+
+function hideHint() {
+  hint.classList.add('fade');
+}
+
+const toastEl = document.getElementById('toast');
+let toastTimer = null;
+function showToast(text) {
+  toastEl.textContent = text;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1600);
+}
+
+function seedStart() {
+  // Two inbound circling, one outbound at gate, so the game has immediate stakes
+  spawnInbound();
+  spawnInbound();
+  spawnOutbound();
+  // Stagger their fuel so they don't all expire at once
+  const inb = state.planes.filter(p => p.type === 'inbound');
+  if (inb[0]) inb[0].fuel = inb[0].fuelMax * 0.85;
+  if (inb[1]) inb[1].fuel = inb[1].fuelMax * 0.65;
+}
+
+function restart() {
+  state.money = 50;
+  state.saved = 0;
+  state.crashed = 0;
+  state.wave = 1;
+  state.waveTimer = 0;
+  state.spawnTimer = 3500; // first new spawn comes a bit after seeded ones
+  state.spawnInterval = 6500;
+  state.paused = false;
+  state.over = false;
+  state.selected = null;
+  state.planes = [];
+  state.runways = [];
+  state.particles = [];
+  state.upgrades = { runway: 1, crew: 0, autoTower: 0, holding: 0, apron: 0, radar: 0 };
+  state.autoTimer = 0;
+  state.shake = 0;
+  document.getElementById('gameover').classList.remove('show');
+  hint.classList.remove('fade');
+  layoutWorld();
+  seedStart();
+}
+
+// ============ BOOT ============
+resize();
+requestAnimationFrame(loop);
+
+// Auto-fade hint after 12s
+setTimeout(() => hideHint(), 12000);
+
+// Prevent scroll/zoom
+document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+document.addEventListener('gesturestart', e => e.preventDefault());
+
+// PWA: register service worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(err => {
+      console.warn('SW registration failed:', err);
+    });
+  });
+}
+</script>
+</body>
+</html>
