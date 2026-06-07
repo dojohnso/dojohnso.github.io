@@ -103,7 +103,10 @@
   .job-decline { flex-shrink:0; width:26px; height:26px; border:none; cursor:pointer;
     background:#3a425c; color:#c8d2e0; font-family:inherit; font-weight:800; font-size:13px;
     border-radius:50%; line-height:1; padding:0; opacity:.85; }
-  .job-decline:hover, .job-decline:active { background:#ff6b5e; color:#fff; opacity:1; }
+  .job-decline:active { background:#ff6b5e; color:#fff; opacity:1; }
+  @media (hover: hover) {
+    .job-decline:hover { background:#ff6b5e; color:#fff; opacity:1; }
+  }
   /* stat panel (main view) + shared segmented bars */
   .stat-panel { display:flex; gap:10px; margin-bottom:12px; }
   .stat-row { flex:1; background:#252b3d; border:2px solid #3a425c; padding:8px 10px; }
