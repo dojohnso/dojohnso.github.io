@@ -118,12 +118,20 @@
   .up-btn.disabled, .buy-btn.disabled { background:#555c70; color:#9aa; cursor:default; }
   /* shop */
   .shop-list { display:flex; flex-direction:column; gap:8px; }
-  .plane-row { display:flex; justify-content:space-between; align-items:center;
+  .plane-row { display:flex; align-items:center; gap:12px;
     background:#252b3d; border:2px solid #3a425c; padding:12px; }
+  .plane-thumb { flex-shrink:0; width:72px; height:40px;
+    background-repeat:no-repeat; background-position:center; background-size:contain;
+    image-rendering:pixelated; image-rendering:crisp-edges; }
+  .plane-thumb[data-plane="prop"]  { background-image:var(--spr-prop); }
+  .plane-thumb[data-plane="twin"]  { background-image:var(--spr-twin); }
+  .plane-thumb[data-plane="turbo"] { background-image:var(--spr-turbo); }
+  .plane-thumb[data-plane="jet"]   { background-image:var(--spr-jet); }
+  .plane-info { flex:1; min-width:0; }
   .plane-name { font-weight:800; font-size:14px; }
   .plane-stats { font-size:11px; opacity:.8; margin-top:2px; }
-  .buy-btn { width:auto; padding:10px 16px; }
-  .owned { color:#7cff7c; font-weight:800; font-size:12px; }
+  .buy-btn { flex-shrink:0; width:auto; padding:10px 16px; }
+  .owned { flex-shrink:0; color:#7cff7c; font-weight:800; font-size:12px; }
 </style>
 </head>
 <body>
@@ -479,7 +487,8 @@
                    p.id + '">' + fmt(p.price) + '</button>';
       return (
         '<div class="plane-row">' +
-          '<div><div class="plane-name">' + p.name + '</div>' +
+          '<div class="plane-thumb" data-plane="' + p.id + '"></div>' +
+          '<div class="plane-info"><div class="plane-name">' + p.name + '</div>' +
           '<div class="plane-stats">Cap ' + p.cap + ' · Spd ' + p.speed.toFixed(1) + '</div></div>' +
           right +
         '</div>'
