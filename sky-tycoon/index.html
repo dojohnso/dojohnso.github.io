@@ -416,10 +416,9 @@
   }
 
   function resetGame() {
-    // Mutate state only; startGame() performs the canonical save afterward.
+    // Mutate state only; startGame() then refills the board and saves.
     try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
     state = freshState();
-    refillBoard();
   }
 
   function fmt(n) { return '$' + n.toLocaleString('en-US'); }
