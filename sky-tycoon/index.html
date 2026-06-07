@@ -140,15 +140,18 @@
   .plane-thumb { flex-shrink:0; width:72px; height:40px;
     background-repeat:no-repeat; background-position:center; background-size:contain;
     image-rendering:pixelated; image-rendering:crisp-edges; }
-  .plane-thumb[data-plane="prop"]  { background-image:var(--spr-prop); }
-  .plane-thumb[data-plane="twin"]  { background-image:var(--spr-twin); }
-  .plane-thumb[data-plane="turbo"] { background-image:var(--spr-turbo); }
-  .plane-thumb[data-plane="jet"]   { background-image:var(--spr-jet); }
+  .plane-thumb[data-plane-thumb="prop"]  { background-image:var(--spr-prop); }
+  .plane-thumb[data-plane-thumb="twin"]  { background-image:var(--spr-twin); }
+  .plane-thumb[data-plane-thumb="turbo"] { background-image:var(--spr-turbo); }
+  .plane-thumb[data-plane-thumb="jet"]   { background-image:var(--spr-jet); }
   .plane-info { flex:1; min-width:0; }
   .plane-name { font-weight:800; font-size:14px; }
   .plane-stats { font-size:11px; opacity:.8; margin-top:2px; }
   .buy-btn { flex-shrink:0; width:auto; padding:10px 16px; }
   .owned { flex-shrink:0; color:#7cff7c; font-weight:800; font-size:12px; }
+  .switch-btn { flex-shrink:0; width:auto; padding:10px 16px; font-family:inherit;
+    font-weight:800; font-size:13px; color:#fff; background:#1d6fa5; border:none; cursor:pointer; }
+  .switch-btn.disabled { background:#555c70; color:#9aa; cursor:default; }
   /* title screen */
   #title { display:none; position:absolute; inset:0; z-index:20; overflow:hidden;
     flex-direction:column; align-items:center; justify-content:center; gap:18px;
@@ -613,16 +616,24 @@
   }
 
   function renderShop() {
+    const flying = !!state.activeFlight;
     const rows = PLANES.map(p => {
-      const owned = p.id === state.planeId;
-      const affordable = !owned && state.money >= p.price;
+      const isCurrent = p.id === state.planeId;
+      const owned = !!state.planes[p.id];
       let right;
-      if (owned) right = '<span class="owned">OWNED</span>';
-      else right = '<button class="buy-btn' + (affordable ? '' : ' disabled') + '" data-plane="' +
-                   p.id + '">' + fmt(p.price) + '</button>';
+      if (isCurrent) {
+        right = '<span class="owned">FLYING</span>';
+      } else if (owned) {
+        right = '<button class="switch-btn' + (flying ? ' disabled' : '') +
+                '" data-switch="' + p.id + '">Switch</button>';
+      } else {
+        const affordable = state.money >= p.price;
+        right = '<button class="buy-btn' + (affordable ? '' : ' disabled') +
+                '" data-plane="' + p.id + '">' + fmt(p.price) + '</button>';
+      }
       return (
         '<div class="plane-row">' +
-          '<div class="plane-thumb" data-plane="' + p.id + '"></div>' +
+          '<div class="plane-thumb" data-plane-thumb="' + p.id + '"></div>' +
           '<div class="plane-info"><div class="plane-name">' + p.name + '</div>' +
           '<div class="plane-stats">Cap ' + p.cap + ' · Spd ' + p.speed.toFixed(1) + '</div></div>' +
           right +
@@ -641,6 +652,7 @@
   function renderAll() {
     if (screen !== 'game') return;
     renderTopBar();
+    renderScene();        // keep the always-visible scene plane in sync (cheap; cache-guarded)
     renderCurrentView();
   }
 
@@ -685,6 +697,11 @@
     if (upBtn) {
       const ok = upBtn.dataset.up === 'engine' ? buyEngineUpgrade() : buyCargoUpgrade();
       if (ok) renderAll();
+      return;
+    }
+    const switchEl = e.target.closest('[data-switch]');
+    if (switchEl) {
+      if (switchPlane(switchEl.dataset.switch)) renderAll();
       return;
     }
     const planeBtn = e.target.closest('[data-plane]');
