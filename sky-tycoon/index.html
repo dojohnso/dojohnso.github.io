@@ -575,20 +575,22 @@
       );
     }).join('');
     const st = currentStats();
+    const cp = curPlane();
     const panel =
       '<div class="stat-panel">' +
-        statRow('CARGO', st.capacity, state.capUps) +
-        statRow('SPEED', st.speed.toFixed(1), state.speedUps) +
+        statRow('CARGO', st.capacity, cp.capUps) +
+        statRow('SPEED', st.speed.toFixed(1), cp.speedUps) +
       '</div>';
     $('#content').innerHTML = panel + '<div class="job-board">' + rows + '</div>';
   }
 
   function renderUpgrade() {
     const st = currentStats();
-    const capMaxed = state.capUps >= MAX_UPGRADES;
-    const speedMaxed = state.speedUps >= MAX_UPGRADES;
-    const engineCost = upgradeCost(state.speedUps);
-    const cargoCost = upgradeCost(state.capUps);
+    const cp = curPlane();
+    const capMaxed = cp.capUps >= MAX_UPGRADES;
+    const speedMaxed = cp.speedUps >= MAX_UPGRADES;
+    const engineCost = upgradeCost(cp.speedUps);
+    const cargoCost = upgradeCost(cp.capUps);
     const canEngine = !speedMaxed && state.money >= engineCost;
     const canCargo = !capMaxed && state.money >= cargoCost;
     const engineBtn = speedMaxed
@@ -602,11 +604,11 @@
     $('#content').innerHTML =
       '<div class="up-card">' +
         '<div class="up-title">Engine · Speed ' + st.speed.toFixed(2) + '</div>' +
-        statBar(state.speedUps) + engineBtn +
+        statBar(cp.speedUps) + engineBtn +
       '</div>' +
       '<div class="up-card">' +
         '<div class="up-title">Cargo Hold · Capacity ' + st.capacity + '</div>' +
-        statBar(state.capUps) + cargoBtn +
+        statBar(cp.capUps) + cargoBtn +
       '</div>';
   }
 
