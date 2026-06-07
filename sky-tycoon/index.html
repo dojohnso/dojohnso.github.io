@@ -358,34 +358,43 @@
   }
 
   function buyEngineUpgrade() {
-    if (state.speedUps >= MAX_UPGRADES) return false;   // plane maxed on speed
-    const cost = upgradeCost(state.speedUps);
+    const cp = curPlane();
+    if (cp.speedUps >= MAX_UPGRADES) return false;   // this plane maxed on speed
+    const cost = upgradeCost(cp.speedUps);
     if (state.money < cost) return false;
     state.money -= cost;
-    state.speedUps += 1;
+    cp.speedUps += 1;
     save();
     return true;
   }
 
   function buyCargoUpgrade() {
-    if (state.capUps >= MAX_UPGRADES) return false;     // plane maxed on capacity
-    const cost = upgradeCost(state.capUps);
+    const cp = curPlane();
+    if (cp.capUps >= MAX_UPGRADES) return false;     // this plane maxed on capacity
+    const cost = upgradeCost(cp.capUps);
     if (state.money < cost) return false;
     state.money -= cost;
-    state.capUps += 1;
+    cp.capUps += 1;
     save();
     return true;
   }
 
   function buyPlane(planeId) {
     const plane = PLANES.find(p => p.id === planeId);
-    if (!plane || planeId === state.planeId) return false;
+    if (!plane || state.planes[planeId]) return false;   // invalid or already owned
     if (state.money < plane.price) return false;
     state.money -= plane.price;
-    state.planeId = planeId;
-    state.speedUps = 0;
-    state.capUps = 0;
+    state.planes[planeId] = { speedUps: 0, capUps: 0 };  // now owned, fresh upgrades
+    state.planeId = planeId;                             // start flying it
     // New (larger) capacity may make current locked jobs takeable; board stays.
+    save();
+    return true;
+  }
+
+  function switchPlane(planeId) {
+    if (state.activeFlight) return false;                // can't switch mid-flight
+    if (!state.planes[planeId] || planeId === state.planeId) return false; // unowned or already flying
+    state.planeId = planeId;
     save();
     return true;
   }
