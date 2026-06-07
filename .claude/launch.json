@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "planet-hopper",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "/usr/local/var/www/dojohnso.github.io/planethopper-pwa", "-l", "3847"],
+      "port": 3847
+    },
+    {
+      "name": "planet-hopper-odyssey",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--config", "/usr/local/var/www/dojohnso.github.io/planet-hopper-odyssey/vite.config.js"],
+      "port": 3848
+    },
+    {
+      "name": "sky-tycoon-mockup",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "/usr/local/var/www/dojohnso.github.io/sky-tycoon-mockup", "-l", "3849"],
+      "port": 3849
+    },
+    {
+      "name": "sky-tycoon",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "/usr/local/var/www/dojohnso.github.io/sky-tycoon", "-l", "3850"],
+      "port": 3850
+    }
+  ]
+}
