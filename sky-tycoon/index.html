@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Sky Tycoon</title>
+<meta name="description" content="Fly jobs, earn money, and upgrade your plane from a single-prop to a jet!">
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#001a33">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sky Tycoon">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="icon" type="image/png" href="./icon-192.png">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root { --ink:#001a33; --gold:#ffd83a; --sky:#5c94fc; --sky2:#8fb6ff; --grass:#3a7d3a; }
@@ -578,6 +586,13 @@
     setInterval(tick, TICK_MS);
   }
   boot();
+
+  // Register the service worker for offline play / installability (best-effort).
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('./sw.js').catch(function () {});
+    });
+  }
 </script>
 </body>
 </html>
