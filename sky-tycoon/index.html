@@ -380,10 +380,11 @@
   // Top-level screen: 'title' or 'game'. Transient (not persisted) — a reload
   // always returns to the title; only the game save persists.
   let screen = 'title';
+  // Whether a save existed when the app loaded (captured before boot re-saves),
+  // so the title shows Continue/New for returning players but Start for new ones.
+  let savePresentAtLoad = false;
 
-  function hasSave() {
-    try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { return false; }
-  }
+  function hasSave() { return savePresentAtLoad; }
 
   function renderTitle() {
     const btns = $('#title-buttons');
@@ -407,8 +408,10 @@
 
   function startGame() {
     screen = 'game';
+    savePresentAtLoad = true;   // once playing, the title should offer Continue
     document.body.classList.remove('show-title');
     refillBoard();
+    save();                     // persist immediately so Continue/refresh resumes this game
     renderAll();
   }
 
@@ -685,6 +688,7 @@
 
   // ---- Boot ----
   function boot() {
+    try { savePresentAtLoad = !!localStorage.getItem(SAVE_KEY); } catch (e) { savePresentAtLoad = false; }
     state = load();
     // Reconcile a persisted flight: derive startedAt from saved elapsed so
     // progress resumes from where it left off (and old saves without it heal).
