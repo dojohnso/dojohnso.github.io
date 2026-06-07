@@ -147,15 +147,15 @@
   const MAX_UPGRADES = 5;   // upgrades allowed per stat, per plane
   const PLANES = [
     { id: 'prop',  name: 'Single Prop', cap: 2,  speed: 1.0, price: 0,    capStep: 1, speedStep: 0.2 },
-    { id: 'twin',  name: 'Twin Prop',   cap: 8,  speed: 2.2, price: 150,  capStep: 1, speedStep: 0.2 },
-    { id: 'turbo', name: 'Turboprop',   cap: 14, speed: 3.4, price: 600,  capStep: 2, speedStep: 0.3 },
-    { id: 'jet',   name: 'Small Jet',   cap: 26, speed: 5.1, price: 2500, capStep: 3, speedStep: 0.4 },
+    { id: 'twin',  name: 'Twin Prop',   cap: 8,  speed: 2.2, price: 400,  capStep: 1, speedStep: 0.2 },
+    { id: 'turbo', name: 'Turboprop',   cap: 14, speed: 3.4, price: 2000, capStep: 2, speedStep: 0.3 },
+    { id: 'jet',   name: 'Small Jet',   cap: 26, speed: 5.1, price: 8000, capStep: 3, speedStep: 0.4 },
   ];
   const BOARD_SIZE = 5;     // jobs visible at once
 
   // ---- Pure helpers ----
   // Cost of the next upgrade given how many of that stat you've already bought.
-  function upgradeCost(count) { return 10 * count + 10; }
+  function upgradeCost(count) { return 15 * count + 15; }
 
   function planeStats(planeId, speedUps, capUps) {
     const base = PLANES.find(p => p.id === planeId);
@@ -175,8 +175,8 @@
   function generateJob(capacity) {
     const maxCargo = Math.max(2, Math.round(capacity * 1.5));
     const cargo = 1 + Math.floor(Math.random() * maxCargo);
-    const flightTime = 3 + Math.floor(Math.random() * 5);  // 3–7 base seconds
-    const payout = Math.round((cargo * 5 + flightTime * 2) * (1 + Math.random() * 0.4));
+    const flightTime = 5 + Math.floor(Math.random() * 6);  // 5–10 base seconds
+    const payout = Math.round((cargo * 4 + flightTime * 1.5) * (1 + Math.random() * 0.4) * 0.55);
     return {
       id: 'j' + Math.random().toString(36).slice(2, 9),
       customer: pick(CUSTOMERS),
@@ -289,13 +289,16 @@
 
   function fmt(n) { return '$' + n.toLocaleString('en-US'); }
 
-  // A segmented upgrade-progress bar: `count` of MAX_UPGRADES pips filled.
-  // `maxed` swaps the styling to the "fully upgraded" look.
+  // A segmented upgrade-progress bar. Drawn with MAX_UPGRADES+1 pips and the
+  // first pip always lit (a fresh plane reads as 1/6, not an empty/decorative
+  // bar), filling one more per upgrade up to a fully-gold 6/6 when maxed.
   function statBar(count) {
     const maxed = count >= MAX_UPGRADES;
+    const filled = count + 1;            // base level counts as the first pip
+    const total = MAX_UPGRADES + 1;
     let pips = '';
-    for (let i = 0; i < MAX_UPGRADES; i++) {
-      pips += '<i class="' + (i < count ? 'on' : '') + (maxed ? ' max' : '') + '"></i>';
+    for (let i = 0; i < total; i++) {
+      pips += '<i class="' + (i < filled ? 'on' : '') + (maxed ? ' max' : '') + '"></i>';
     }
     return '<div class="statbar' + (maxed ? ' maxed' : '') + '">' + pips + '</div>';
   }
