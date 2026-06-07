@@ -42,6 +42,41 @@
     cursor: pointer; font-family: inherit; letter-spacing: 1px;
   }
   .nav-btn.active { color: var(--gold); border-top-color: var(--gold); }
+  /* scene plane + progress */
+  .plane { position:absolute; width:48px; height:18px; top:60px; left:50%;
+    transform:translateX(-50%); background:#e53935;
+    box-shadow: -14px 0 0 0 #b71c1c, 14px -6px 0 0 #fff, 18px 0 0 0 #fff; }
+  .plane.flying { animation: fly 1.2s linear infinite; }
+  @keyframes fly { 0%{transform:translateX(-70px)} 100%{transform:translateX(70px)} }
+  .flight-label { position:absolute; bottom:34px; width:100%; text-align:center;
+    font-size:12px; font-weight:800; letter-spacing:1px; text-shadow:1px 1px 0 #003; }
+  .progress { position:absolute; bottom:14px; left:14px; right:14px; height:12px;
+    background:var(--ink); border:2px solid #fff; }
+  .progress > i { display:block; height:100%; background:var(--gold); }
+  /* job board */
+  .job-board { display:flex; flex-direction:column; gap:8px; }
+  .job { display:flex; justify-content:space-between; align-items:center;
+    background:#252b3d; border:2px solid #3a425c;
+    padding:10px 12px; cursor:pointer; }
+  .job.disabled { opacity:.45; cursor:default; }
+  .job-who { font-weight:800; font-size:13px; }
+  .job-meta { font-size:11px; opacity:.8; margin-top:2px; }
+  .job-pay { font-weight:800; color:var(--gold); text-align:right; font-size:14px; }
+  .job-pay .lock { display:block; font-size:9px; color:#ff8a80; font-weight:400; margin-top:2px; }
+  /* upgrade */
+  .up-card { background:#252b3d; border:2px solid #3a425c; padding:12px; margin-bottom:10px; }
+  .up-title { font-size:13px; font-weight:800; margin-bottom:8px; }
+  .up-btn, .buy-btn { font-family:inherit; font-weight:800; font-size:13px; color:var(--ink);
+    background:var(--gold); border:none; padding:12px; width:100%; cursor:pointer; }
+  .up-btn.disabled, .buy-btn.disabled { background:#555c70; color:#9aa; cursor:default; }
+  /* shop */
+  .shop-list { display:flex; flex-direction:column; gap:8px; }
+  .plane-row { display:flex; justify-content:space-between; align-items:center;
+    background:#252b3d; border:2px solid #3a425c; padding:12px; }
+  .plane-name { font-weight:800; font-size:14px; }
+  .plane-stats { font-size:11px; opacity:.8; margin-top:2px; }
+  .buy-btn { width:auto; padding:10px 16px; }
+  .owned { color:#7cff7c; font-weight:800; font-size:12px; }
 </style>
 </head>
 <body>
@@ -195,6 +230,107 @@
     // New (larger) capacity may make current locked jobs takeable; board stays.
     save();
     return true;
+  }
+
+  // ---- Render ----
+  let currentView = 'fly';
+  const $ = sel => document.querySelector(sel);
+
+  function fmt(n) { return '$' + n.toLocaleString('en-US'); }
+
+  function renderTopBar() {
+    $('#money').textContent = fmt(state.money);
+    $('#planeName').textContent = currentStats().name;
+  }
+
+  function renderScene() {
+    const scene = $('#scene');
+    const f = state.activeFlight;
+    if (f) {
+      const pct = Math.min(100, Math.round((f.elapsedMs / f.totalMs) * 100));
+      scene.innerHTML =
+        '<div class="plane flying"></div>' +
+        '<div class="flight-label">Flying to ' + f.place + '… ' + pct + '%</div>' +
+        '<div class="progress"><i style="width:' + pct + '%"></i></div>';
+    } else {
+      scene.innerHTML = '<div class="plane idle"></div>';
+    }
+  }
+
+  function renderFly() {
+    renderScene();
+    const cap = currentStats().capacity;
+    const flying = !!state.activeFlight;
+    const rows = state.jobs.map(job => {
+      const ok = canTakeJob(job, cap) && !flying;
+      const locked = !canTakeJob(job, cap);
+      return (
+        '<div class="job' + (ok ? '' : ' disabled') + '" ' +
+          (ok ? 'data-job="' + job.id + '"' : '') + '>' +
+          '<div class="job-main">' +
+            '<div class="job-who">' + job.customer + ' → ' + job.place + '</div>' +
+            '<div class="job-meta">📦 ' + job.cargo + '  ·  ' + job.flightTime + 's</div>' +
+          '</div>' +
+          '<div class="job-pay">' + fmt(job.payout) +
+            (locked ? '<span class="lock">Need bigger plane</span>' : '') +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
+    $('#content').innerHTML = '<div class="job-board">' + rows + '</div>';
+  }
+
+  function renderUpgrade() {
+    const st = currentStats();
+    const engineCost = upgradeCost(state.speedUps);
+    const cargoCost = upgradeCost(state.capUps);
+    const canEngine = state.money >= engineCost;
+    const canCargo = state.money >= cargoCost;
+    $('#content').innerHTML =
+      '<div class="up-card">' +
+        '<div class="up-title">Engine · Speed ' + st.speed.toFixed(2) + '</div>' +
+        '<button class="up-btn' + (canEngine ? '' : ' disabled') + '" data-up="engine">' +
+          'Upgrade Engine — ' + fmt(engineCost) + '</button>' +
+      '</div>' +
+      '<div class="up-card">' +
+        '<div class="up-title">Cargo Hold · Capacity ' + st.capacity + '</div>' +
+        '<button class="up-btn' + (canCargo ? '' : ' disabled') + '" data-up="cargo">' +
+          'Upgrade Cargo Hold — ' + fmt(cargoCost) + '</button>' +
+      '</div>';
+  }
+
+  function renderShop() {
+    const rows = PLANES.map(p => {
+      const owned = p.id === state.planeId;
+      const affordable = !owned && state.money >= p.price;
+      let right;
+      if (owned) right = '<span class="owned">OWNED</span>';
+      else right = '<button class="buy-btn' + (affordable ? '' : ' disabled') + '" data-plane="' +
+                   p.id + '">' + fmt(p.price) + '</button>';
+      return (
+        '<div class="plane-row">' +
+          '<div><div class="plane-name">' + p.name + '</div>' +
+          '<div class="plane-stats">Cap ' + p.cap + ' · Spd ' + p.speed.toFixed(1) + '</div></div>' +
+          right +
+        '</div>'
+      );
+    }).join('');
+    $('#content').innerHTML = '<div class="shop-list">' + rows + '</div>';
+  }
+
+  function renderCurrentView() {
+    if (currentView === 'fly') renderFly();
+    else if (currentView === 'upgrade') renderUpgrade();
+    else if (currentView === 'shop') renderShop();
+  }
+
+  function renderAll() { renderTopBar(); renderCurrentView(); }
+
+  function setView(view) {
+    currentView = view;
+    document.querySelectorAll('.nav-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.view === view));
+    renderCurrentView();
   }
 
   document.getElementById('content').textContent = 'Loading…';
