@@ -60,8 +60,67 @@
   </div>
 <script>
   'use strict';
-  // Game logic added in later tasks.
+
+  // ---- Config ----
+  const PLANES = [
+    { id: 'prop',  name: 'Single Prop', cap: 2,  speed: 1.0, price: 0 },
+    { id: 'twin',  name: 'Twin Prop',   cap: 5,  speed: 1.4, price: 150 },
+    { id: 'turbo', name: 'Turboprop',   cap: 10, speed: 2.0, price: 600 },
+    { id: 'jet',   name: 'Small Jet',   cap: 20, speed: 3.0, price: 2500 },
+  ];
+  const CAP_STEP = 1;       // capacity gained per cargo-hold upgrade
+  const SPEED_STEP = 0.15;  // speed gained per engine upgrade
+  const BOARD_SIZE = 5;     // jobs visible at once
+
+  // ---- Pure helpers ----
+  // Cost of the next upgrade given how many of that stat you've already bought.
+  function upgradeCost(count) { return 10 * count + 10; }
+
+  function planeStats(planeId, speedUps, capUps) {
+    const base = PLANES.find(p => p.id === planeId);
+    return {
+      name: base.name,
+      capacity: base.cap + capUps * CAP_STEP,
+      speed: +(base.speed + speedUps * SPEED_STEP).toFixed(2),
+    };
+  }
+
+  const CUSTOMERS = ['Mara','Theo','Iris','Gus','Pip','Nadia','León','Wren','Otto','Suki'];
+  const PLACES = ['Riverside','Pine Bluff','Cedar Cove','Fox Hollow','Bayfield','Stonepark','Larkton','Mistport'];
+
+  function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+  // capacity: player's current capacity, used to scale job size.
+  function generateJob(capacity) {
+    const maxCargo = Math.max(2, Math.round(capacity * 1.5));
+    const cargo = 1 + Math.floor(Math.random() * maxCargo);
+    const flightTime = 3 + Math.floor(Math.random() * 5);  // 3–7 base seconds
+    const payout = Math.round((cargo * 5 + flightTime * 2) * (1 + Math.random() * 0.4));
+    return {
+      id: 'j' + Math.random().toString(36).slice(2, 9),
+      customer: pick(CUSTOMERS),
+      place: pick(PLACES),
+      cargo, flightTime, payout,
+    };
+  }
+
+  function canTakeJob(job, capacity) { return job.cargo <= capacity; }
+
   document.getElementById('content').textContent = 'Loading…';
+
+  if (location.search.includes('test')) {
+    console.assert(upgradeCost(0) === 10, 'upgradeCost(0) should be 10');
+    console.assert(upgradeCost(1) === 20, 'upgradeCost(1) should be 20');
+    console.assert(upgradeCost(5) === 60, 'upgradeCost(5) should be 60');
+    const s = planeStats('prop', 2, 3);
+    console.assert(s.capacity === 5, 'prop +3 cap => 5, got ' + s.capacity);
+    console.assert(s.speed === 1.3, 'prop +2 speed => 1.3, got ' + s.speed);
+    console.assert(canTakeJob({cargo:2}, 2) === true, 'cargo 2 fits cap 2');
+    console.assert(canTakeJob({cargo:3}, 2) === false, 'cargo 3 does not fit cap 2');
+    const j = generateJob(2);
+    console.assert(j.cargo >= 1 && j.payout > 0 && j.flightTime >= 3, 'generateJob shape');
+    console.log('Sky Tycoon helper tests: done (check for assertion errors above)');
+  }
 </script>
 </body>
 </html>
