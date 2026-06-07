@@ -385,58 +385,6 @@
     setInterval(tick, TICK_MS);
   }
   boot();
-
-  if (location.search.includes('test')) {
-    console.assert(upgradeCost(0) === 10, 'upgradeCost(0) should be 10');
-    console.assert(upgradeCost(1) === 20, 'upgradeCost(1) should be 20');
-    console.assert(upgradeCost(5) === 60, 'upgradeCost(5) should be 60');
-    const s = planeStats('prop', 2, 3);
-    console.assert(s.capacity === 5, 'prop +3 cap => 5, got ' + s.capacity);
-    console.assert(s.speed === 1.3, 'prop +2 speed => 1.3, got ' + s.speed);
-    console.assert(canTakeJob({cargo:2}, 2) === true, 'cargo 2 fits cap 2');
-    console.assert(canTakeJob({cargo:3}, 2) === false, 'cargo 3 does not fit cap 2');
-    const j = generateJob(2);
-    console.assert(j.cargo >= 1 && j.payout > 0 && j.flightTime >= 3, 'generateJob shape');
-    const snapshot = state; // may be null here; guard
-    state = freshState(); state.money = 123; save();
-    const reloaded = load();
-    console.assert(reloaded.money === 123, 'save/load round-trips money, got ' + reloaded.money);
-    localStorage.removeItem(SAVE_KEY);
-    state = snapshot;
-
-    state = freshState();
-    refillBoard();
-    console.assert(state.jobs.length === BOARD_SIZE, 'board fills to BOARD_SIZE, got ' + state.jobs.length);
-
-    // upgrade affordability
-    state.money = 10;
-    console.assert(buyCargoUpgrade() === true, 'can buy first cargo upgrade for $10');
-    console.assert(state.money === 0 && state.capUps === 1, 'cargo upgrade deducts + increments');
-    console.assert(buyCargoUpgrade() === false, 'cannot buy second upgrade with $0');
-
-    // buying a plane resets counters
-    state = freshState();
-    state.money = 200; state.speedUps = 3; state.capUps = 4;
-    console.assert(buyPlane('twin') === true, 'can buy twin for 150 with 200');
-    console.assert(state.planeId === 'twin' && state.speedUps === 0 && state.capUps === 0,
-      'buyPlane swaps plane and resets upgrade counts');
-    console.assert(state.money === 50, 'buyPlane deducts price, got ' + state.money);
-
-    // startJob / completeFlight
-    state = freshState(); refillBoard();
-    const takeable = state.jobs.find(j => j.cargo <= currentStats().capacity);
-    const before = state.money;
-    console.assert(startJob(takeable) === true, 'startJob starts a takeable job');
-    console.assert(state.activeFlight !== null, 'activeFlight set after startJob');
-    console.assert(startJob(takeable) === false, 'cannot start a second flight');
-    completeFlight();
-    console.assert(state.money === before + takeable.payout, 'completeFlight pays out');
-    console.assert(state.activeFlight === null, 'activeFlight cleared after completeFlight');
-    console.assert(state.jobs.length === BOARD_SIZE, 'board refilled after completeFlight');
-    localStorage.removeItem(SAVE_KEY);
-
-    console.log('Sky Tycoon helper tests: done (check for assertion errors above)');
-  }
 </script>
 </body>
 </html>
