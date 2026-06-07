@@ -416,10 +416,10 @@
   }
 
   function resetGame() {
+    // Mutate state only; startGame() performs the canonical save afterward.
     try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
     state = freshState();
     refillBoard();
-    save();
   }
 
   function fmt(n) { return '$' + n.toLocaleString('en-US'); }
@@ -703,7 +703,10 @@
     $('#title').addEventListener('click', onTitleClick);
     $('#topbar').addEventListener('click', onTopbarClick);
     currentView = 'fly';
-    setView('fly');          // sets the active nav tab; renderAll inside is a no-op on title
+    // Set the active nav tab without rendering the (hidden) game view yet;
+    // startGame() → renderAll() renders it when the player actually enters.
+    document.querySelectorAll('.nav-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.view === 'fly'));
     showTitle();             // land on the title screen, not straight into the game
     setInterval(tick, TICK_MS);
   }
