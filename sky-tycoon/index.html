@@ -269,8 +269,8 @@
     return {
       money: 0,
       planeId: 'prop',
-      speedUps: 0,
-      capUps: 0,
+      // Owned planes → their per-plane upgrade counts. You start owning the prop.
+      planes: { prop: { speedUps: 0, capUps: 0 } },
       jobs: [],
       activeFlight: null, // { jobId, place, totalMs, elapsedMs, payout }
     };
@@ -287,13 +287,27 @@
       const parsed = JSON.parse(raw);
       // Merge onto fresh defaults so missing fields don't break older saves.
       const merged = Object.assign(freshState(), parsed);
-      // Guard against a corrupt save (e.g. jobs got nulled) crashing boot.
       if (!Array.isArray(merged.jobs)) merged.jobs = [];
+      // Migrate legacy saves (top-level speedUps/capUps, no planes map): keep the
+      // current plane's upgrades by seeding the planes map from them.
+      if (!merged.planes || typeof merged.planes !== 'object') {
+        merged.planes = { [merged.planeId]: { speedUps: parsed.speedUps || 0, capUps: parsed.capUps || 0 } };
+      }
+      // Always ensure the current plane has an upgrade record so stat reads can't crash.
+      if (!merged.planes[merged.planeId]) {
+        merged.planes[merged.planeId] = { speedUps: 0, capUps: 0 };
+      }
+      // Drop the now-unused legacy top-level counts.
+      delete merged.speedUps;
+      delete merged.capUps;
       return merged;
     } catch (e) { return freshState(); }
   }
 
-  function currentStats() { return planeStats(state.planeId, state.speedUps, state.capUps); }
+  // The upgrade record for the plane currently being flown.
+  function curPlane() { return state.planes[state.planeId]; }
+
+  function currentStats() { return planeStats(state.planeId, curPlane().speedUps, curPlane().capUps); }
 
   // ---- Actions ----
   function refillBoard() {
