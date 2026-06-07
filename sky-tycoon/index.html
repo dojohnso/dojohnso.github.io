@@ -91,9 +91,23 @@
   .job-meta { font-size:13px; color:#c8d2e0; font-weight:600; margin-top:3px; }
   .job-pay { font-weight:800; color:var(--gold); text-align:right; font-size:14px; }
   .job-pay .lock { display:block; font-size:11px; color:#ff6b5e; font-weight:700; margin-top:3px; }
+  /* stat panel (main view) + shared segmented bars */
+  .stat-panel { display:flex; gap:10px; margin-bottom:12px; }
+  .stat-row { flex:1; background:#252b3d; border:2px solid #3a425c; padding:8px 10px; }
+  .stat-label { font-size:11px; font-weight:800; letter-spacing:1px; color:#9fb0c8; }
+  .stat-val { font-size:17px; font-weight:800; color:#fff; margin:2px 0 6px; }
+  .stat-max { font-size:10px; font-weight:800; color:var(--ink); background:var(--gold);
+    padding:1px 5px; border-radius:3px; vertical-align:middle; letter-spacing:1px; }
+  .statbar { display:flex; gap:3px; }
+  .statbar > i { flex:1; height:8px; background:#10141f; border:1px solid #3a425c; }
+  .statbar > i.on { background:#5bb8e0; border-color:#5bb8e0; }
+  .statbar.maxed > i.on, .statbar > i.max { background:var(--gold); border-color:var(--gold); }
   /* upgrade */
   .up-card { background:#252b3d; border:2px solid #3a425c; padding:12px; margin-bottom:10px; }
   .up-title { font-size:13px; font-weight:800; margin-bottom:8px; }
+  .up-card .statbar { margin-bottom:10px; }
+  .up-maxed { text-align:center; font-size:12px; font-weight:800; color:var(--gold);
+    background:#1a2030; border:2px dashed #4a5570; padding:11px 8px; letter-spacing:.5px; }
   .up-btn, .buy-btn { font-family:inherit; font-weight:800; font-size:13px; color:var(--ink);
     background:var(--gold); border:none; padding:12px; width:100%; cursor:pointer; }
   .up-btn.disabled, .buy-btn.disabled { background:#555c70; color:#9aa; cursor:default; }
@@ -125,14 +139,18 @@
   'use strict';
 
   // ---- Config ----
+  // Each plane upgrades up to MAX_UPGRADES times per stat. Steps are tuned so a
+  // fully-upgraded plane lands just below the next plane's base — maxing out a
+  // plane pushes you to buy the next one to reach bigger/faster jobs.
+  //   Capacity: prop 2→7,  twin 8→13,  turbo 14→24, jet 26→41
+  //   Speed:    prop 1.0→2.0, twin 2.2→3.2, turbo 3.4→4.9, jet 5.1→7.1
+  const MAX_UPGRADES = 5;   // upgrades allowed per stat, per plane
   const PLANES = [
-    { id: 'prop',  name: 'Single Prop', cap: 2,  speed: 1.0, price: 0 },
-    { id: 'twin',  name: 'Twin Prop',   cap: 5,  speed: 1.4, price: 150 },
-    { id: 'turbo', name: 'Turboprop',   cap: 10, speed: 2.0, price: 600 },
-    { id: 'jet',   name: 'Small Jet',   cap: 20, speed: 3.0, price: 2500 },
+    { id: 'prop',  name: 'Single Prop', cap: 2,  speed: 1.0, price: 0,    capStep: 1, speedStep: 0.2 },
+    { id: 'twin',  name: 'Twin Prop',   cap: 8,  speed: 2.2, price: 150,  capStep: 1, speedStep: 0.2 },
+    { id: 'turbo', name: 'Turboprop',   cap: 14, speed: 3.4, price: 600,  capStep: 2, speedStep: 0.3 },
+    { id: 'jet',   name: 'Small Jet',   cap: 26, speed: 5.1, price: 2500, capStep: 3, speedStep: 0.4 },
   ];
-  const CAP_STEP = 1;       // capacity gained per cargo-hold upgrade
-  const SPEED_STEP = 0.15;  // speed gained per engine upgrade
   const BOARD_SIZE = 5;     // jobs visible at once
 
   // ---- Pure helpers ----
@@ -143,8 +161,8 @@
     const base = PLANES.find(p => p.id === planeId);
     return {
       name: base.name,
-      capacity: base.cap + capUps * CAP_STEP,
-      speed: +(base.speed + speedUps * SPEED_STEP).toFixed(2),
+      capacity: base.cap + capUps * base.capStep,
+      speed: +(base.speed + speedUps * base.speedStep).toFixed(2),
     };
   }
 
@@ -233,6 +251,7 @@
   }
 
   function buyEngineUpgrade() {
+    if (state.speedUps >= MAX_UPGRADES) return false;   // plane maxed on speed
     const cost = upgradeCost(state.speedUps);
     if (state.money < cost) return false;
     state.money -= cost;
@@ -242,6 +261,7 @@
   }
 
   function buyCargoUpgrade() {
+    if (state.capUps >= MAX_UPGRADES) return false;     // plane maxed on capacity
     const cost = upgradeCost(state.capUps);
     if (state.money < cost) return false;
     state.money -= cost;
@@ -268,6 +288,29 @@
   const $ = sel => document.querySelector(sel);
 
   function fmt(n) { return '$' + n.toLocaleString('en-US'); }
+
+  // A segmented upgrade-progress bar: `count` of MAX_UPGRADES pips filled.
+  // `maxed` swaps the styling to the "fully upgraded" look.
+  function statBar(count) {
+    const maxed = count >= MAX_UPGRADES;
+    let pips = '';
+    for (let i = 0; i < MAX_UPGRADES; i++) {
+      pips += '<i class="' + (i < count ? 'on' : '') + (maxed ? ' max' : '') + '"></i>';
+    }
+    return '<div class="statbar' + (maxed ? ' maxed' : '') + '">' + pips + '</div>';
+  }
+
+  // One stat row for the main-view panel: label, current value, segmented bar.
+  function statRow(label, value, count) {
+    const maxed = count >= MAX_UPGRADES;
+    return (
+      '<div class="stat-row">' +
+        '<div class="stat-label">' + label + '</div>' +
+        '<div class="stat-val">' + value + (maxed ? ' <span class="stat-max">MAX</span>' : '') + '</div>' +
+        statBar(count) +
+      '</div>'
+    );
+  }
 
   function renderTopBar() {
     $('#money').textContent = fmt(state.money);
@@ -362,25 +405,39 @@
         '</div>'
       );
     }).join('');
-    $('#content').innerHTML = '<div class="job-board">' + rows + '</div>';
+    const st = currentStats();
+    const panel =
+      '<div class="stat-panel">' +
+        statRow('CARGO', st.capacity, state.capUps) +
+        statRow('SPEED', st.speed.toFixed(1), state.speedUps) +
+      '</div>';
+    $('#content').innerHTML = panel + '<div class="job-board">' + rows + '</div>';
   }
 
   function renderUpgrade() {
     const st = currentStats();
+    const capMaxed = state.capUps >= MAX_UPGRADES;
+    const speedMaxed = state.speedUps >= MAX_UPGRADES;
     const engineCost = upgradeCost(state.speedUps);
     const cargoCost = upgradeCost(state.capUps);
-    const canEngine = state.money >= engineCost;
-    const canCargo = state.money >= cargoCost;
+    const canEngine = !speedMaxed && state.money >= engineCost;
+    const canCargo = !capMaxed && state.money >= cargoCost;
+    const engineBtn = speedMaxed
+      ? '<div class="up-maxed">MAXED — buy a bigger plane in the Shop</div>'
+      : '<button class="up-btn' + (canEngine ? '' : ' disabled') + '" data-up="engine">' +
+          'Upgrade Engine — ' + fmt(engineCost) + '</button>';
+    const cargoBtn = capMaxed
+      ? '<div class="up-maxed">MAXED — buy a bigger plane in the Shop</div>'
+      : '<button class="up-btn' + (canCargo ? '' : ' disabled') + '" data-up="cargo">' +
+          'Upgrade Cargo Hold — ' + fmt(cargoCost) + '</button>';
     $('#content').innerHTML =
       '<div class="up-card">' +
         '<div class="up-title">Engine · Speed ' + st.speed.toFixed(2) + '</div>' +
-        '<button class="up-btn' + (canEngine ? '' : ' disabled') + '" data-up="engine">' +
-          'Upgrade Engine — ' + fmt(engineCost) + '</button>' +
+        statBar(state.speedUps) + engineBtn +
       '</div>' +
       '<div class="up-card">' +
         '<div class="up-title">Cargo Hold · Capacity ' + st.capacity + '</div>' +
-        '<button class="up-btn' + (canCargo ? '' : ' disabled') + '" data-up="cargo">' +
-          'Upgrade Cargo Hold — ' + fmt(cargoCost) + '</button>' +
+        statBar(state.capUps) + cargoBtn +
       '</div>';
   }
 
