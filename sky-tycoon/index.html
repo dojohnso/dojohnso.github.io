@@ -299,6 +299,9 @@
       if (legacyPlanes) {
         merged.planes = { [merged.planeId]: { speedUps: parsed.speedUps || 0, capUps: parsed.capUps || 0 } };
       }
+      // Reject a tampered/unknown current plane id rather than crashing later
+      // stat reads (planeStats would dereference an undefined PLANES entry).
+      if (!PLANES.find(p => p.id === merged.planeId)) return freshState();
       // Always ensure the current plane has an upgrade record so stat reads can't crash.
       if (!merged.planes[merged.planeId]) {
         merged.planes[merged.planeId] = { speedUps: 0, capUps: 0 };
@@ -383,6 +386,7 @@
   }
 
   function buyPlane(planeId) {
+    if (state.activeFlight) return false;                // can't buy/swap mid-flight
     const plane = PLANES.find(p => p.id === planeId);
     if (!plane || state.planes[planeId]) return false;   // invalid or already owned
     if (state.money < plane.price) return false;
