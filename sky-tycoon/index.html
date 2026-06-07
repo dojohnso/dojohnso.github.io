@@ -7,6 +7,12 @@
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root { --ink:#001a33; --gold:#ffd83a; --sky:#5c94fc; --sky2:#8fb6ff; --grass:#3a7d3a; }
+  :root {
+    --spr-prop: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAQCAYAAAB3AH1ZAAAAAXNSR0IArs4c6QAAASlJREFUSIljYBgFWECViMj/KhGR//SwiwmboJuqOIObqjg97GdgQeZUiYj8d1MVZ1AXFqSL5QwMOEJg8okbDAwMDAwHLLWpHg3X7j5GMRMlBNrevGF0UxX/76YqznDz7Xu8BpHqOIfjVxkZGBgYbty+iyLOgq7w5c/fDOLsrHB+lYjI/1wLDaIsWd61heHsow8MxnICDAwMDAyGIhwMGkkucHMYGBgY7ty5w5BdWPF/an8HI1YHXHz0jkFfTgjFEcSCyDIfhkgCalRUVBge3r0D5zMSYzC24H758zfDxUfvGBgYGBj05YTgbGSgLyfEEH7uFood1+4+/q+lLAsXwwgBbAAWf+ggW0HiPwMDA8Ohd58YGHhYGKY+eIGq7s0bDD3oaWAUjIIBBwB+kVWX/FFOmwAAAABJRU5ErkJggg==");
+    --spr-twin: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAASCAYAAAApH5ymAAAAAXNSR0IArs4c6QAAAS1JREFUSIljYBgFo2AQA6mgsv/yyRP/D6QbmPBJ8us5M3DJajAMpCNxOlAqqOz/t8c3GLgllBi4ZDXIMnzdjgP/swsrKPIcCy6JZ+u6GBkYGBhETb2IsiA2t+6/kjw/AwMDA8O9hx8Zrt95wHDnzh1K3MbAwMDAwIhLQiqo7D+roDTZocfAwMDQasHOUH3iJ0F13x7fYPj9/ik8UEh2ILeEEtmOhAF1BVYGYzkBBgYGBgZDEQ4GBgYGhtJ1j+Hyr09vY0jQ/MPQWFKM4iacDsTmUFoBskIQH4A5Ghv4/f4pAwMDAwOyPC7LiQFkaWJgQGSK6bvuMTAwMDC4qwszXL/zgCHM246hLCeFUcwt+z8DAwPDq11TybaDKqC+p/d/bG4dPKdTo2gZBaNgMAEAX+Nj9tt3Iz4AAAAASUVORK5CYII=");
+    --spr-turbo: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAASCAYAAAAg9DzcAAAAAXNSR0IArs4c6QAAAUpJREFUSInt1L9LAmEcx/H3hdCUFPnjXCTjBm1u6F/oX/Coqe1qiCKaippECol0CNyixuYggjAwHCJCkIYydDmRC5SWcHmaPM5LMeNSh3ttz8MXns/z5fs84HK5hkqyb2QuLkU0HEGWfdRqBi/VdzQ1/qNuVCbsG5oal3KFPEF/AFn2Udf1UeTqcHV9J/oWGY2muL1/6F84BMl0VmibuwLA06vouVgiV8h3jAhA0B9wJESxNcmT8QXAY7UBwMnSjHm2fRQzqYQEXWbYav/oWARCIaLhCLEblY9SmdmFeabCDUdCd/NZnQbgzKsBUK408XpaZuhfPaZ2cE2NS+2O/6dcIc/B9paZLZnOip31tf4dHkT7UlZ1Xe84+K+S6ayovL2SSSWknjM8iJWNPQGYP4oTIa0URcGRDi8ur4qYMmeuz08Px+a/drnG1TeBTHKWWNEWIwAAAABJRU5ErkJggg==");
+    --spr-jet: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAASCAYAAAAdZl26AAAAAXNSR0IArs4c6QAAAUpJREFUSIntlb9LAlEcwD+GBC1xntcU2pB7g/4T/hE6uaVDFNKkk1CiNKSb0FKN1RLYIEQQheBQU+RZGDglUm1F8Rrk5C5P7LiLFO6zvR+89/28977fBy4utvD87Fhd2xRLyyEA0snE0PikYRrgUfVcAKiqOhUSplzUb4UmMsnMjBq4rtdRZJl8qWKQyBaKonxwKLKF4kTIjRQA6PZ6hnYkGhcP7Vf29quc1m6IpTL/LjH2fedLFREK9ZNakeVBv+L32do41/wiHJRoPL0QDkoANC47PB7nAKjsbg/m3jVbI/NxrIC+Kp3czwEgBQIA+CS/LQkrrLxf0W6plHe2DDH/usJoIulkwqPlhXYzf03trAowFDxYELCK/ulBvySbnaBdHBeIpTJi3vuBsrgAQLfz7HjQerxOLhaJxgXA2+cs5Y316fwAXVymjG8nunAOAGI5RgAAAABJRU5ErkJggg==");
+  }
   html, body { height: 100%; }
   body {
     font-family: 'Courier New', monospace;
@@ -43,11 +49,16 @@
   }
   .nav-btn.active { color: var(--gold); border-top-color: var(--gold); }
   /* scene plane + progress */
-  .plane { position:absolute; width:48px; height:18px; top:60px; left:50%;
-    transform:translateX(-50%); background:#e53935;
-    box-shadow: -14px 0 0 0 #b71c1c, 14px -6px 0 0 #fff, 18px 0 0 0 #fff; }
-  .plane.flying { animation: fly 1.2s linear infinite; }
-  @keyframes fly { 0%{transform:translateX(-70px)} 100%{transform:translateX(70px)} }
+  .plane { position:absolute; top:54px; left:50%; transform:translateX(-50%);
+    background-repeat:no-repeat; background-position:center; background-size:contain;
+    image-rendering:pixelated; image-rendering:crisp-edges; }
+  /* Per-tier sprites (embedded). Heights scale up the native pixel art ~4x. */
+  .plane[data-plane="prop"]  { width:128px; height:64px; background-image:var(--spr-prop); }
+  .plane[data-plane="twin"]  { width:152px; height:68px; background-image:var(--spr-twin); }
+  .plane[data-plane="turbo"] { width:164px; height:68px; background-image:var(--spr-turbo); }
+  .plane[data-plane="jet"]   { width:176px; height:68px; background-image:var(--spr-jet); }
+  .plane.flying { animation: fly 1.6s ease-in-out infinite; }
+  @keyframes fly { 0%{transform:translate(-90px,2px)} 50%{transform:translate(0,-4px)} 100%{transform:translate(90px,2px)} }
   .flight-label { position:absolute; bottom:34px; width:100%; text-align:center;
     font-size:12px; font-weight:800; letter-spacing:1px; text-shadow:1px 1px 0 #003; }
   .progress { position:absolute; bottom:14px; left:14px; right:14px; height:12px;
@@ -249,14 +260,15 @@
   function renderScene() {
     const scene = $('#scene');
     const f = state.activeFlight;
+    const tier = state.planeId;
     if (f) {
       const pct = Math.min(100, Math.round((f.elapsedMs / f.totalMs) * 100));
       scene.innerHTML =
-        '<div class="plane flying"></div>' +
+        '<div class="plane flying" data-plane="' + tier + '"></div>' +
         '<div class="flight-label">Flying to ' + f.place + '… ' + pct + '%</div>' +
         '<div class="progress"><i style="width:' + pct + '%"></i></div>';
     } else {
-      scene.innerHTML = '<div class="plane idle"></div>';
+      scene.innerHTML = '<div class="plane idle" data-plane="' + tier + '"></div>';
     }
   }
 
