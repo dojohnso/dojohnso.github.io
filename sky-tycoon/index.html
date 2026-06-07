@@ -166,7 +166,10 @@
       if (!raw) return freshState();
       const parsed = JSON.parse(raw);
       // Merge onto fresh defaults so missing fields don't break older saves.
-      return Object.assign(freshState(), parsed);
+      const merged = Object.assign(freshState(), parsed);
+      // Guard against a corrupt save (e.g. jobs got nulled) crashing boot.
+      if (!Array.isArray(merged.jobs)) merged.jobs = [];
+      return merged;
     } catch (e) { return freshState(); }
   }
 
@@ -185,7 +188,7 @@
     const totalMs = (job.flightTime / currentStats().speed) * 1000;
     state.activeFlight = {
       jobId: job.id, place: job.place,
-      totalMs, elapsedMs: 0, payout: job.payout,
+      totalMs, startedAt: Date.now(), elapsedMs: 0, payout: job.payout,
     };
     save();
     return true;
@@ -272,7 +275,7 @@
             '<div class="job-meta">📦 ' + job.cargo + '  ·  ' + job.flightTime + 's</div>' +
           '</div>' +
           '<div class="job-pay">' + fmt(job.payout) +
-            (locked ? '<span class="lock">Need bigger plane</span>' : '') +
+            (locked ? '<span class="lock">Need more capacity</span>' : '') +
           '</div>' +
         '</div>'
       );
@@ -336,9 +339,11 @@
   // ---- Loop ----
   const TICK_MS = 100;
   function tick() {
-    if (state.activeFlight) {
-      state.activeFlight.elapsedMs += TICK_MS;
-      if (state.activeFlight.elapsedMs >= state.activeFlight.totalMs) {
+    const f = state.activeFlight;
+    if (f) {
+      // Drive progress from wall-clock so a mid-flight reload keeps its place.
+      f.elapsedMs = Date.now() - f.startedAt;
+      if (f.elapsedMs >= f.totalMs) {
         completeFlight();
         renderAll();
       } else if (currentView === 'fly') {
@@ -376,6 +381,12 @@
   // ---- Boot ----
   function boot() {
     state = load();
+    // Reconcile a persisted flight: derive startedAt from saved elapsed so
+    // progress resumes from where it left off (and old saves without it heal).
+    const f = state.activeFlight;
+    if (f && typeof f.startedAt !== 'number') {
+      f.startedAt = Date.now() - (f.elapsedMs || 0);
+    }
     refillBoard();
     save();
     $('#content').addEventListener('click', onContentClick);
