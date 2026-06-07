@@ -48,17 +48,34 @@
     cursor: pointer; font-family: inherit; letter-spacing: 1px;
   }
   .nav-btn.active { color: var(--gold); border-top-color: var(--gold); }
-  /* scene plane + progress */
-  .plane { position:absolute; top:54px; left:50%; transform:translateX(-50%);
+  /* scene layers + plane + progress */
+  #scene > * { position:absolute; }
+  /* parallax scenery layers: a 200%-wide strip we slide leftward to scroll */
+  .layer { top:0; left:0; height:100%; width:200%; will-change:transform; }
+  .layer.scroll-clouds { animation: scrollX 9s linear infinite; }   /* slow = far */
+  .layer.scroll-trees  { animation: scrollX 3.2s linear infinite; } /* fast = near */
+  .layer.paused { animation-play-state:paused; }
+  @keyframes scrollX { from{transform:translateX(0)} to{transform:translateX(-50%)} }
+  .cloud { position:absolute; background:#fff; border-radius:50px; opacity:.85; }
+  .tree  { position:absolute; bottom:0; }
+  .tree .trunk { position:absolute; bottom:0; left:50%; transform:translateX(-50%);
+    width:6px; height:14px; background:#6b4a2b; }
+  .tree .leaves { position:absolute; bottom:10px; left:50%; transform:translateX(-50%);
+    width:26px; height:26px; background:#2f6b2f; border-radius:6px;
+    box-shadow:0 -8px 0 -4px #357a35, -10px 4px 0 -6px #2f6b2f, 10px 4px 0 -6px #2f6b2f; }
+  .bush { position:absolute; bottom:0; width:20px; height:12px; background:#357a35; border-radius:8px 8px 0 0; }
+  .plane { left:50%; transform:translateX(-50%);
     background-repeat:no-repeat; background-position:center; background-size:contain;
-    image-rendering:pixelated; image-rendering:crisp-edges; }
+    image-rendering:pixelated; image-rendering:crisp-edges;
+    transition:top .12s linear; }
   /* Per-tier sprites (embedded). Heights scale up the native pixel art ~4x. */
   .plane[data-plane="prop"]  { width:128px; height:64px; background-image:var(--spr-prop); }
   .plane[data-plane="twin"]  { width:152px; height:68px; background-image:var(--spr-twin); }
   .plane[data-plane="turbo"] { width:164px; height:68px; background-image:var(--spr-turbo); }
   .plane[data-plane="jet"]   { width:176px; height:68px; background-image:var(--spr-jet); }
-  .plane.flying { animation: fly 1.6s ease-in-out infinite; }
-  @keyframes fly { 0%{transform:translate(-90px,2px)} 50%{transform:translate(0,-4px)} 100%{transform:translate(90px,2px)} }
+  /* gentle bob layered on top of the progress-driven top position */
+  .plane.flying { animation: bob 1.4s ease-in-out infinite; }
+  @keyframes bob { 0%,100%{margin-top:0} 50%{margin-top:-4px} }
   .flight-label { position:absolute; bottom:34px; width:100%; text-align:center;
     font-size:12px; font-weight:800; letter-spacing:1px; text-shadow:1px 1px 0 #003; }
   .progress { position:absolute; bottom:14px; left:14px; right:14px; height:12px;
@@ -257,18 +274,71 @@
     $('#planeName').textContent = currentStats().name;
   }
 
-  function renderScene() {
+  // Scene altitude (plane `top` in px). Ground = parked on grass; cruise = high.
+  const GROUND_TOP = 96, CRUISE_TOP = 26;
+  // Map flight progress (0..1) to a takeoff → cruise → landing altitude curve.
+  function planeTopForProgress(p) {
+    if (p <= 0.18) return GROUND_TOP + (CRUISE_TOP - GROUND_TOP) * (p / 0.18);      // climb
+    if (p >= 0.82) return CRUISE_TOP + (GROUND_TOP - CRUISE_TOP) * ((p - 0.82) / 0.18); // descend
+    return CRUISE_TOP;                                                              // cruise
+  }
+
+  // Build the repeating parallax strips once (each is 200% wide and scrolls -50%,
+  // so the content must repeat across the first half to loop seamlessly).
+  function cloudStripHTML() {
+    const spots = [[6,18,70,22],[24,40,90,28],[40,30,60,18],[62,50,84,26],[80,22,74,22]];
+    let h = '';
+    for (let pass = 0; pass < 2; pass++) {
+      spots.forEach(([x,y,w,hh]) =>
+        h += '<div class="cloud" style="left:' + (x/2 + pass*50) + '%;top:' + y + 'px;width:' + w + 'px;height:' + hh + 'px"></div>');
+    }
+    return h;
+  }
+  function treeStripHTML() {
+    // x positions (across a 50% span) + type; repeated twice for the loop.
+    const items = [[3,'tree'],[11,'bush'],[18,'tree'],[27,'bush'],[34,'tree'],[42,'tree'],[47,'bush']];
+    let h = '';
+    for (let pass = 0; pass < 2; pass++) {
+      items.forEach(([x,type]) => {
+        const left = x/2 + pass*50;
+        if (type === 'tree') h += '<div class="tree" style="left:' + left + '%"><div class="leaves"></div><div class="trunk"></div></div>';
+        else h += '<div class="bush" style="left:' + left + '%"></div>';
+      });
+    }
+    return h;
+  }
+
+  let sceneFlying = null; // tracks what the scene shell was built for, to avoid rebuilds
+
+  function buildSceneShell(flying, tier) {
     const scene = $('#scene');
+    scene.innerHTML =
+      '<div class="layer scroll-clouds' + (flying ? '' : ' paused') + '">' + cloudStripHTML() + '</div>' +
+      '<div class="layer scroll-trees' + (flying ? '' : ' paused') + '">' + treeStripHTML() + '</div>' +
+      '<div class="plane' + (flying ? ' flying' : '') + '" data-plane="' + tier + '"></div>' +
+      (flying ? '<div class="flight-label"></div><div class="progress"><i></i></div>' : '');
+    sceneFlying = flying ? tier : 'idle';
+  }
+
+  function renderScene() {
     const f = state.activeFlight;
     const tier = state.planeId;
+    const wantKey = f ? tier : 'idle';
+    // Rebuild the shell only when flight-state or plane tier changes (keeps the
+    // CSS scroll animations from restarting every tick).
+    if (sceneFlying !== wantKey) buildSceneShell(!!f, tier);
+
+    const plane = $('.plane');
     if (f) {
-      const pct = Math.min(100, Math.round((f.elapsedMs / f.totalMs) * 100));
-      scene.innerHTML =
-        '<div class="plane flying" data-plane="' + tier + '"></div>' +
-        '<div class="flight-label">Flying to ' + f.place + '… ' + pct + '%</div>' +
-        '<div class="progress"><i style="width:' + pct + '%"></i></div>';
-    } else {
-      scene.innerHTML = '<div class="plane idle" data-plane="' + tier + '"></div>';
+      const prog = Math.min(1, f.elapsedMs / f.totalMs);
+      const pct = Math.round(prog * 100);
+      if (plane) plane.style.top = planeTopForProgress(prog).toFixed(1) + 'px';
+      const label = $('.flight-label');
+      if (label) label.textContent = 'Flying to ' + f.place + '… ' + pct + '%';
+      const bar = $('.progress > i');
+      if (bar) bar.style.width = pct + '%';
+    } else if (plane) {
+      plane.style.top = GROUND_TOP + 'px';
     }
   }
 
