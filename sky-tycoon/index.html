@@ -377,6 +377,48 @@
   let currentView = 'fly';
   const $ = sel => document.querySelector(sel);
 
+  // Top-level screen: 'title' or 'game'. Transient (not persisted) — a reload
+  // always returns to the title; only the game save persists.
+  let screen = 'title';
+
+  function hasSave() {
+    try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { return false; }
+  }
+
+  function renderTitle() {
+    const btns = $('#title-buttons');
+    if (hasSave()) {
+      btns.innerHTML =
+        '<button class="t-btn t-primary" data-title-action="continue">Continue</button>' +
+        '<button class="t-btn t-secondary" data-title-action="new">New Game</button>';
+    } else {
+      btns.innerHTML =
+        '<button class="t-btn t-primary" data-title-action="start">Start Game</button>';
+    }
+    $('#title-confirm').hidden = true;   // always start with confirm hidden
+  }
+
+  function showTitle() {
+    if (screen === 'game') save();       // preserve progress when leaving the game
+    screen = 'title';
+    renderTitle();
+    document.body.classList.add('show-title');
+  }
+
+  function startGame() {
+    screen = 'game';
+    document.body.classList.remove('show-title');
+    refillBoard();
+    renderAll();
+  }
+
+  function resetGame() {
+    try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+    state = freshState();
+    refillBoard();
+    save();
+  }
+
   function fmt(n) { return '$' + n.toLocaleString('en-US'); }
 
   // A segmented upgrade-progress bar. Drawn with MAX_UPGRADES+1 pips and the
@@ -566,7 +608,11 @@
     else if (currentView === 'shop') renderShop();
   }
 
-  function renderAll() { renderTopBar(); renderCurrentView(); }
+  function renderAll() {
+    if (screen !== 'game') return;
+    renderTopBar();
+    renderCurrentView();
+  }
 
   function setView(view) {
     currentView = view;
@@ -585,7 +631,7 @@
       if (f.elapsedMs >= f.totalMs) {
         completeFlight();
         renderAll();
-      } else if (currentView === 'fly') {
+      } else if (screen === 'game' && currentView === 'fly') {
         renderScene();
       }
     }
@@ -623,6 +669,20 @@
     if (btn) setView(btn.dataset.view);
   }
 
+  function onTitleClick(e) {
+    const btn = e.target.closest('[data-title-action]');
+    if (!btn) return;
+    const action = btn.dataset.titleAction;
+    if (action === 'start' || action === 'continue') { startGame(); return; }
+    if (action === 'new') { $('#title-confirm').hidden = false; return; }
+    if (action === 'cancel-new') { $('#title-confirm').hidden = true; return; }
+    if (action === 'confirm-new') { resetGame(); startGame(); return; }
+  }
+
+  function onTopbarClick(e) {
+    if (e.target.closest('[data-home]')) showTitle();
+  }
+
   // ---- Boot ----
   function boot() {
     state = load();
@@ -636,8 +696,11 @@
     save();
     $('#content').addEventListener('click', onContentClick);
     $('#nav').addEventListener('click', onNavClick);
-    setView('fly');
-    renderAll();
+    $('#title').addEventListener('click', onTitleClick);
+    $('#topbar').addEventListener('click', onTopbarClick);
+    currentView = 'fly';
+    setView('fly');          // sets the active nav tab; renderAll inside is a no-op on title
+    showTitle();             // land on the title screen, not straight into the game
     setInterval(tick, TICK_MS);
   }
   boot();
