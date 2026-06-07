@@ -137,6 +137,66 @@
 
   function currentStats() { return planeStats(state.planeId, state.speedUps, state.capUps); }
 
+  // ---- Actions ----
+  function refillBoard() {
+    const cap = currentStats().capacity;
+    while (state.jobs.length < BOARD_SIZE) state.jobs.push(generateJob(cap));
+  }
+
+  function startJob(job) {
+    if (state.activeFlight) return false;
+    const cap = currentStats().capacity;
+    if (!canTakeJob(job, cap)) return false;
+    const totalMs = (job.flightTime / currentStats().speed) * 1000;
+    state.activeFlight = {
+      jobId: job.id, place: job.place,
+      totalMs, elapsedMs: 0, payout: job.payout,
+    };
+    save();
+    return true;
+  }
+
+  function completeFlight() {
+    const f = state.activeFlight;
+    if (!f) return;
+    state.money += f.payout;
+    state.jobs = state.jobs.filter(j => j.id !== f.jobId);
+    state.activeFlight = null;
+    refillBoard();
+    save();
+  }
+
+  function buyEngineUpgrade() {
+    const cost = upgradeCost(state.speedUps);
+    if (state.money < cost) return false;
+    state.money -= cost;
+    state.speedUps += 1;
+    save();
+    return true;
+  }
+
+  function buyCargoUpgrade() {
+    const cost = upgradeCost(state.capUps);
+    if (state.money < cost) return false;
+    state.money -= cost;
+    state.capUps += 1;
+    save();
+    return true;
+  }
+
+  function buyPlane(planeId) {
+    const plane = PLANES.find(p => p.id === planeId);
+    if (!plane || planeId === state.planeId) return false;
+    if (state.money < plane.price) return false;
+    state.money -= plane.price;
+    state.planeId = planeId;
+    state.speedUps = 0;
+    state.capUps = 0;
+    // New (larger) capacity may make current locked jobs takeable; board stays.
+    save();
+    return true;
+  }
+
   document.getElementById('content').textContent = 'Loading…';
 
   if (location.search.includes('test')) {
@@ -156,6 +216,38 @@
     console.assert(reloaded.money === 123, 'save/load round-trips money, got ' + reloaded.money);
     localStorage.removeItem(SAVE_KEY);
     state = snapshot;
+
+    state = freshState();
+    refillBoard();
+    console.assert(state.jobs.length === BOARD_SIZE, 'board fills to BOARD_SIZE, got ' + state.jobs.length);
+
+    // upgrade affordability
+    state.money = 10;
+    console.assert(buyCargoUpgrade() === true, 'can buy first cargo upgrade for $10');
+    console.assert(state.money === 0 && state.capUps === 1, 'cargo upgrade deducts + increments');
+    console.assert(buyCargoUpgrade() === false, 'cannot buy second upgrade with $0');
+
+    // buying a plane resets counters
+    state = freshState();
+    state.money = 200; state.speedUps = 3; state.capUps = 4;
+    console.assert(buyPlane('twin') === true, 'can buy twin for 150 with 200');
+    console.assert(state.planeId === 'twin' && state.speedUps === 0 && state.capUps === 0,
+      'buyPlane swaps plane and resets upgrade counts');
+    console.assert(state.money === 50, 'buyPlane deducts price, got ' + state.money);
+
+    // startJob / completeFlight
+    state = freshState(); refillBoard();
+    const takeable = state.jobs.find(j => j.cargo <= currentStats().capacity);
+    const before = state.money;
+    console.assert(startJob(takeable) === true, 'startJob starts a takeable job');
+    console.assert(state.activeFlight !== null, 'activeFlight set after startJob');
+    console.assert(startJob(takeable) === false, 'cannot start a second flight');
+    completeFlight();
+    console.assert(state.money === before + takeable.payout, 'completeFlight pays out');
+    console.assert(state.activeFlight === null, 'activeFlight cleared after completeFlight');
+    console.assert(state.jobs.length === BOARD_SIZE, 'board refilled after completeFlight');
+    localStorage.removeItem(SAVE_KEY);
+
     console.log('Sky Tycoon helper tests: done (check for assertion errors above)');
   }
 </script>
