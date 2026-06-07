@@ -106,6 +106,37 @@
 
   function canTakeJob(job, capacity) { return job.cargo <= capacity; }
 
+  // ---- State ----
+  const SAVE_KEY = 'skyTycoonSave_v1';
+  let state = null;
+
+  function freshState() {
+    return {
+      money: 0,
+      planeId: 'prop',
+      speedUps: 0,
+      capUps: 0,
+      jobs: [],
+      activeFlight: null, // { jobId, place, totalMs, elapsedMs, payout }
+    };
+  }
+
+  function save() {
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (e) {}
+  }
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return freshState();
+      const parsed = JSON.parse(raw);
+      // Merge onto fresh defaults so missing fields don't break older saves.
+      return Object.assign(freshState(), parsed);
+    } catch (e) { return freshState(); }
+  }
+
+  function currentStats() { return planeStats(state.planeId, state.speedUps, state.capUps); }
+
   document.getElementById('content').textContent = 'Loading…';
 
   if (location.search.includes('test')) {
@@ -119,6 +150,12 @@
     console.assert(canTakeJob({cargo:3}, 2) === false, 'cargo 3 does not fit cap 2');
     const j = generateJob(2);
     console.assert(j.cargo >= 1 && j.payout > 0 && j.flightTime >= 3, 'generateJob shape');
+    const snapshot = state; // may be null here; guard
+    state = freshState(); state.money = 123; save();
+    const reloaded = load();
+    console.assert(reloaded.money === 123, 'save/load round-trips money, got ' + reloaded.money);
+    localStorage.removeItem(SAVE_KEY);
+    state = snapshot;
     console.log('Sky Tycoon helper tests: done (check for assertion errors above)');
   }
 </script>
