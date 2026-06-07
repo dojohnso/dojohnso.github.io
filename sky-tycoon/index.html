@@ -288,9 +288,12 @@
       // Merge onto fresh defaults so missing fields don't break older saves.
       const merged = Object.assign(freshState(), parsed);
       if (!Array.isArray(merged.jobs)) merged.jobs = [];
-      // Migrate legacy saves (top-level speedUps/capUps, no planes map): keep the
-      // current plane's upgrades by seeding the planes map from them.
-      if (!merged.planes || typeof merged.planes !== 'object') {
+      // Migrate legacy saves (old single-plane shape: top-level speedUps/capUps,
+      // no own `planes` map). Decide based on the SAVED data (parsed), because
+      // freshState() always supplies a default planes map. Seed the planes map
+      // from the saved plane's upgrades so the player keeps them.
+      const legacyPlanes = !parsed.planes || typeof parsed.planes !== 'object';
+      if (legacyPlanes) {
         merged.planes = { [merged.planeId]: { speedUps: parsed.speedUps || 0, capUps: parsed.capUps || 0 } };
       }
       // Always ensure the current plane has an upgrade record so stat reads can't crash.
