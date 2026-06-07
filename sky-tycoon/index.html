@@ -83,14 +83,19 @@
   .progress > i { display:block; height:100%; background:var(--gold); }
   /* job board */
   .job-board { display:flex; flex-direction:column; gap:8px; }
-  .job { display:flex; justify-content:space-between; align-items:center;
+  .job { display:flex; align-items:center; gap:10px;
     background:#252b3d; border:2px solid #3a425c;
     padding:10px 12px; cursor:pointer; }
   .job.disabled { opacity:.6; cursor:default; }
+  .job-main { flex:1; min-width:0; }
   .job-who { font-weight:800; font-size:13px; }
   .job-meta { font-size:13px; color:#c8d2e0; font-weight:600; margin-top:3px; }
   .job-pay { font-weight:800; color:var(--gold); text-align:right; font-size:14px; }
   .job-pay .lock { display:block; font-size:11px; color:#ff6b5e; font-weight:700; margin-top:3px; }
+  .job-decline { flex-shrink:0; width:26px; height:26px; border:none; cursor:pointer;
+    background:#3a425c; color:#c8d2e0; font-family:inherit; font-weight:800; font-size:13px;
+    border-radius:50%; line-height:1; padding:0; opacity:.85; }
+  .job-decline:hover, .job-decline:active { background:#ff6b5e; color:#fff; opacity:1; }
   /* stat panel (main view) + shared segmented bars */
   .stat-panel { display:flex; gap:10px; margin-bottom:12px; }
   .stat-row { flex:1; background:#252b3d; border:2px solid #3a425c; padding:8px 10px; }
@@ -172,8 +177,10 @@
   function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
   // capacity: player's current capacity, used to scale job size.
-  function generateJob(capacity) {
-    const maxCargo = Math.max(2, Math.round(capacity * 1.5));
+  // forceTakeable: clamp cargo to capacity so the job is always acceptable
+  // (used to guarantee the board never soft-locks with only too-big jobs).
+  function generateJob(capacity, forceTakeable) {
+    const maxCargo = forceTakeable ? capacity : Math.max(2, Math.round(capacity * 1.5));
     const cargo = 1 + Math.floor(Math.random() * maxCargo);
     const flightTime = 5 + Math.floor(Math.random() * 6);  // 5–10 base seconds
     const payout = Math.round((cargo * 4 + flightTime * 1.5) * (1 + Math.random() * 0.4) * 0.55);
@@ -225,6 +232,22 @@
   function refillBoard() {
     const cap = currentStats().capacity;
     while (state.jobs.length < BOARD_SIZE) state.jobs.push(generateJob(cap));
+    // Anti-soft-lock: if nothing on the board is takeable (e.g. maxed plane but
+    // every job rolled too big), replace one slot with a guaranteed-takeable job
+    // so the player can always earn money toward the next plane.
+    if (!state.jobs.some(j => canTakeJob(j, cap))) {
+      state.jobs[state.jobs.length - 1] = generateJob(cap, true);
+    }
+  }
+
+  // Drop a job from the board (no cost) and pull a fresh one in its place.
+  function declineJob(jobId) {
+    const before = state.jobs.length;
+    state.jobs = state.jobs.filter(j => j.id !== jobId);
+    if (state.jobs.length === before) return false; // unknown id
+    refillBoard();
+    save();
+    return true;
   }
 
   function startJob(job) {
@@ -405,6 +428,8 @@
           '<div class="job-pay">' + fmt(job.payout) +
             (locked ? '<span class="lock">Need more capacity</span>' : '') +
           '</div>' +
+          (flying ? '' : '<button class="job-decline" data-decline="' + job.id +
+            '" title="Decline this job" aria-label="Decline job">✕</button>') +
         '</div>'
       );
     }).join('');
@@ -496,6 +521,12 @@
 
   // ---- Events ----
   function onContentClick(e) {
+    // Decline must be checked before job-start: the ✕ lives inside the job card.
+    const declineEl = e.target.closest('[data-decline]');
+    if (declineEl) {
+      if (declineJob(declineEl.dataset.decline)) renderAll();
+      return;
+    }
     const jobEl = e.target.closest('[data-job]');
     if (jobEl) {
       const job = state.jobs.find(j => j.id === jobEl.dataset.job);
