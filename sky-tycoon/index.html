@@ -393,7 +393,11 @@
     return h;
   }
 
-  let sceneFlying = null; // tracks what the scene shell was built for, to avoid rebuilds
+  let sceneKey = null; // what the scene shell was last built for, to avoid rebuilds
+
+  // Composite key: BOTH flight-state and plane tier must invalidate the cache.
+  // (A tier change while idle must still rebuild so the sprite updates.)
+  function sceneKeyFor(flying, tier) { return (flying ? 'fly' : 'idle') + ':' + tier; }
 
   function buildSceneShell(flying, tier) {
     const scene = $('#scene');
@@ -402,16 +406,16 @@
       '<div class="layer scroll-trees' + (flying ? '' : ' paused') + '">' + treeStripHTML() + '</div>' +
       '<div class="plane' + (flying ? ' flying' : '') + '" data-plane="' + tier + '"></div>' +
       (flying ? '<div class="flight-label"></div><div class="progress"><i></i></div>' : '');
-    sceneFlying = flying ? tier : 'idle';
+    sceneKey = sceneKeyFor(flying, tier);
   }
 
   function renderScene() {
     const f = state.activeFlight;
     const tier = state.planeId;
-    const wantKey = f ? tier : 'idle';
+    const wantKey = sceneKeyFor(!!f, tier);
     // Rebuild the shell only when flight-state or plane tier changes (keeps the
     // CSS scroll animations from restarting every tick).
-    if (sceneFlying !== wantKey) buildSceneShell(!!f, tier);
+    if (sceneKey !== wantKey) buildSceneShell(!!f, tier);
 
     const plane = $('.plane');
     if (f) {
