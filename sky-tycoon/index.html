@@ -556,7 +556,6 @@
   }
 
   function renderFly() {
-    renderScene();
     const cap = currentStats().capacity;
     const flying = !!state.activeFlight;
     const rows = state.jobs.map(job => {
@@ -660,6 +659,7 @@
     currentView = view;
     document.querySelectorAll('.nav-btn').forEach(b =>
       b.classList.toggle('active', b.dataset.view === view));
+    renderScene();          // keep the always-visible scene in sync on tab change
     renderCurrentView();
   }
 
