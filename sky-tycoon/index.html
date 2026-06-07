@@ -333,7 +333,58 @@
     renderCurrentView();
   }
 
-  document.getElementById('content').textContent = 'Loading…';
+  // ---- Loop ----
+  const TICK_MS = 100;
+  function tick() {
+    if (state.activeFlight) {
+      state.activeFlight.elapsedMs += TICK_MS;
+      if (state.activeFlight.elapsedMs >= state.activeFlight.totalMs) {
+        completeFlight();
+        renderAll();
+      } else if (currentView === 'fly') {
+        renderScene();
+      }
+    }
+  }
+
+  // ---- Events ----
+  function onContentClick(e) {
+    const jobEl = e.target.closest('[data-job]');
+    if (jobEl) {
+      const job = state.jobs.find(j => j.id === jobEl.dataset.job);
+      if (job && startJob(job)) renderAll();
+      return;
+    }
+    const upBtn = e.target.closest('[data-up]');
+    if (upBtn) {
+      const ok = upBtn.dataset.up === 'engine' ? buyEngineUpgrade() : buyCargoUpgrade();
+      if (ok) renderAll();
+      return;
+    }
+    const planeBtn = e.target.closest('[data-plane]');
+    if (planeBtn) {
+      if (buyPlane(planeBtn.dataset.plane)) renderAll();
+      return;
+    }
+  }
+
+  function onNavClick(e) {
+    const btn = e.target.closest('.nav-btn');
+    if (btn) setView(btn.dataset.view);
+  }
+
+  // ---- Boot ----
+  function boot() {
+    state = load();
+    refillBoard();
+    save();
+    $('#content').addEventListener('click', onContentClick);
+    $('#nav').addEventListener('click', onNavClick);
+    setView('fly');
+    renderAll();
+    setInterval(tick, TICK_MS);
+  }
+  boot();
 
   if (location.search.includes('test')) {
     console.assert(upgradeCost(0) === 10, 'upgradeCost(0) should be 10');
