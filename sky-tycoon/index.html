@@ -95,12 +95,20 @@
   .progress { position:absolute; bottom:14px; left:14px; right:14px; height:12px;
     background:var(--ink); border:2px solid #fff; }
   .progress > i { display:block; height:100%; background:var(--gold); }
+  /* flight HUD (label + progress) only shows while a flight is active */
+  #scene:not(.flying) .flight-label, #scene:not(.flying) .progress { display:none; }
   /* job board */
   .job-board { display:flex; flex-direction:column; gap:8px; }
   .job { display:flex; align-items:center; gap:10px;
     background:#252b3d; border:2px solid #3a425c;
-    padding:10px 12px; cursor:pointer; }
+    padding:10px 12px; cursor:pointer; position:relative; overflow:hidden; }
   .job.disabled { opacity:.6; cursor:default; }
+  /* the in-flight job: full opacity + a gold fill that tracks progress (--pct) */
+  .job.active { opacity:1; border-color:var(--gold); }
+  .job.active::before { content:''; position:absolute; inset:0; z-index:0;
+    width:var(--pct,0%); background:linear-gradient(90deg, rgba(255,216,58,.28), rgba(255,216,58,.14));
+    transition:width .12s linear; pointer-events:none; }
+  .job > * { position:relative; z-index:1; }
   .job-main { flex:1; min-width:0; }
   .job-who { font-weight:800; font-size:13px; }
   .job-meta { font-size:13px; color:#c8d2e0; font-weight:600; margin-top:3px; }
@@ -521,53 +529,71 @@
     return h;
   }
 
-  let sceneKey = null; // what the scene shell was last built for, to avoid rebuilds
+  let sceneTier = null; // which plane tier the scene shell was last built for
 
-  // Composite key: BOTH flight-state and plane tier must invalidate the cache.
-  // (A tier change while idle must still rebuild so the sprite updates.)
-  function sceneKeyFor(flying, tier) { return (flying ? 'fly' : 'idle') + ':' + tier; }
-
-  function buildSceneShell(flying, tier) {
+  // The shell is rebuilt ONLY when the plane tier changes (a new sprite). Flight
+  // state is just toggled on the existing nodes, so the scrolling clouds/trees
+  // keep their animation position across flights (freeze on landing, resume next
+  // flight) instead of resetting to 0 on every rebuild.
+  function buildSceneShell(tier) {
     const scene = $('#scene');
     scene.innerHTML =
-      '<div class="layer scroll-clouds' + (flying ? '' : ' paused') + '">' + cloudStripHTML() + '</div>' +
-      '<div class="layer scroll-trees' + (flying ? '' : ' paused') + '">' + treeStripHTML() + '</div>' +
-      '<div class="plane' + (flying ? ' flying' : '') + '" data-plane="' + tier + '"></div>' +
-      (flying ? '<div class="flight-label"></div><div class="progress"><i></i></div>' : '');
-    sceneKey = sceneKeyFor(flying, tier);
+      '<div class="layer scroll-clouds paused">' + cloudStripHTML() + '</div>' +
+      '<div class="layer scroll-trees paused">' + treeStripHTML() + '</div>' +
+      '<div class="plane" data-plane="' + tier + '"></div>' +
+      '<div class="flight-label"></div><div class="progress"><i></i></div>';
+    sceneTier = tier;
   }
 
   function renderScene() {
     const f = state.activeFlight;
     const tier = state.planeId;
-    const wantKey = sceneKeyFor(!!f, tier);
-    // Rebuild the shell only when flight-state or plane tier changes (keeps the
-    // CSS scroll animations from restarting every tick).
-    if (sceneKey !== wantKey) buildSceneShell(!!f, tier);
+    if (sceneTier !== tier) buildSceneShell(tier);
 
+    const scene = $('#scene');
     const plane = $('.plane');
+    const flying = !!f;
+    scene.classList.toggle('flying', flying);
+    plane.classList.toggle('flying', flying);
+    // Pause/resume the parallax scroll in place (no rebuild = no reset).
+    scene.querySelectorAll('.layer').forEach(l => l.classList.toggle('paused', !flying));
+
     if (f) {
       const prog = Math.min(1, f.elapsedMs / f.totalMs);
       const pct = Math.round(prog * 100);
-      if (plane) plane.style.top = planeTopForProgress(prog).toFixed(1) + 'px';
-      const label = $('.flight-label');
-      if (label) label.textContent = 'Flying to ' + f.place + '… ' + pct + '%';
-      const bar = $('.progress > i');
-      if (bar) bar.style.width = pct + '%';
-    } else if (plane) {
+      plane.style.top = planeTopForProgress(prog).toFixed(1) + 'px';
+      $('.flight-label').textContent = 'Flying to ' + f.place + '… ' + pct + '%';
+      $('.progress > i').style.width = pct + '%';
+    } else {
       plane.style.top = GROUND_TOP + 'px';
     }
   }
 
+  // Update the in-flight job row's gold progress fill (cheap; called each tick on
+  // the Fly view). The row itself is built by renderFly with data-active-job.
+  function updateActiveJobProgress() {
+    const f = state.activeFlight;
+    if (!f) return;
+    const row = $('[data-active-job]');
+    if (!row) return;
+    const pct = Math.round(Math.min(1, f.elapsedMs / f.totalMs) * 100);
+    row.style.setProperty('--pct', pct + '%');
+  }
+
   function renderFly() {
     const cap = currentStats().capacity;
-    const flying = !!state.activeFlight;
+    const f = state.activeFlight;
+    const flying = !!f;
     const rows = state.jobs.map(job => {
+      const isActive = flying && job.id === f.jobId;     // the job currently in flight
       const ok = canTakeJob(job, cap) && !flying;
       const locked = !canTakeJob(job, cap);
+      const cls = 'job' + (isActive ? ' active' : (ok ? '' : ' disabled'));
+      const initPct = isActive ? Math.round(Math.min(1, f.elapsedMs / f.totalMs) * 100) : 0;
       return (
-        '<div class="job' + (ok ? '' : ' disabled') + '" ' +
-          (ok ? 'data-job="' + job.id + '"' : '') + '>' +
+        '<div class="' + cls + '" ' +
+          (ok ? 'data-job="' + job.id + '"' : '') +
+          (isActive ? ' data-active-job style="--pct:' + initPct + '%"' : '') + '>' +
           '<div class="job-main">' +
             '<div class="job-who">' + job.customer + ' → ' + job.place + '</div>' +
             '<div class="job-meta">📦 ' + job.cargo + '  ·  ' + job.flightTime + 's</div>' +
@@ -677,8 +703,11 @@
       if (f.elapsedMs >= f.totalMs) {
         completeFlight();
         renderAll();
-      } else if (screen === 'game' && currentView === 'fly') {
+      } else if (screen === 'game') {
+        // Update the always-visible scene every tick regardless of the active
+        // tab, plus the in-flight job row's progress fill while on the Fly view.
         renderScene();
+        if (currentView === 'fly') updateActiveJobProgress();
       }
     }
   }
