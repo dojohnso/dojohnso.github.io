@@ -849,9 +849,16 @@
     const hint = locked
       ? '<div class="autopilot-hint">✈ Autopilot lets you manage jobs while flying.</div>'
       : '';
+    // Re-rendering replaces the .fly-board node, which would reset its scroll to
+    // the top — jarring when a flight lands while you're scrolled down managing the
+    // board. Preserve and restore the scroll position across the re-render.
+    const prevBoard = $('.fly-board');
+    const prevScroll = prevBoard ? prevBoard.scrollTop : 0;
     $('#content').innerHTML =
       '<div class="fly-pinned">' + panel + toggle + queueStripHTML() + hint + '</div>' +
       '<div class="fly-board"><div class="job-board">' + rows + '</div></div>';
+    const newBoard = $('.fly-board');
+    if (newBoard && prevScroll) newBoard.scrollTop = prevScroll;
   }
 
   // The queue strip: a label + a row of slots (filled jobs are tap-to-remove).
