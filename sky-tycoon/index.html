@@ -78,6 +78,26 @@
     width:26px; height:26px; background:#2f6b2f; border-radius:6px;
     box-shadow:0 -8px 0 -4px #357a35, -10px 4px 0 -6px #2f6b2f, 10px 4px 0 -6px #2f6b2f; }
   .bush { position:absolute; bottom:0; width:20px; height:12px; background:#357a35; border-radius:8px 8px 0 0; }
+  /* Airports (departure + arrival). Centered base; renderScene drives each one's
+     transform every tick at the trees' ground speed, so parallax matches. The
+     runway top sits at the plane's wheel line (~140px); the plane renders on top
+     so its wheels visually rest on the tarmac. Hidden while fully off-screen so
+     a repositioned element never streaks across view. */
+  .airport { position:absolute; left:50%; bottom:0; transform:translateX(-50%);
+    width:160px; height:50px; pointer-events:none;
+    /* The airport is repositioned by JS each 100ms tick; a linear transform
+       transition slightly longer than the tick interpolates between steps so it
+       glides like the CSS-animated trees instead of stepping ~13px at 10fps.
+       Each airport only moves one direction, so this never animates a big jump. */
+    transition:transform .12s linear; }
+  .airport.hidden { visibility:hidden; }
+  .runway { position:absolute; bottom:30px; left:50%; transform:translateX(-50%); width:120px; height:12px;
+    background:#6b7178; border-top:2px solid #aeb8c0;
+    background-image:repeating-linear-gradient(90deg, #fff 0 10px, transparent 10px 24px);
+    background-size:100% 3px; background-repeat:no-repeat; background-position:center; }
+  .tower { position:absolute; bottom:30px; right:0; width:11px; height:26px; background:#9aa3ad; }
+  .tower-cab { position:absolute; top:-8px; left:-4px; width:18px; height:10px;
+    background:#3a5a78; border:2px solid #cfd6dd; box-sizing:border-box; }
   .plane { left:50%; transform:translateX(-50%);
     background-repeat:no-repeat; background-position:center; background-size:contain;
     image-rendering:pixelated; image-rendering:crisp-edges;
@@ -504,6 +524,20 @@
     return CRUISE_TOP;                                                              // cruise
   }
 
+  // Ground scroll speed, matched to the trees so the runway parallax is correct:
+  // the trees layer is 200% wide and travels -50% (= -100% of the scene width)
+  // over 3.2s, i.e. one scene-width per 3.2s. Runways move at this same speed.
+  const TREE_CYCLE_SEC = 3.2;
+  const SCENE_W = 420;                                  // app max-width (scene width)
+  const GROUND_PX_PER_SEC = SCENE_W / TREE_CYCLE_SEC;   // ≈131 px/s
+  const OFFSCREEN = SCENE_W / 2 + 90;                   // past the edge incl. airport half-width
+  // Two airports anchored in the moving ground:
+  //  - departure: centered at takeoff (elapsed 0), then slides left at ground speed.
+  //  - arrival: slides in from the right at ground speed, centered at touchdown
+  //    (when remaining time is 0). Each only moves one direction; hidden off-screen.
+  function depRunwayOffset(elapsedSec)  { return -GROUND_PX_PER_SEC * elapsedSec; }
+  function arrRunwayOffset(remainSec)   { return  GROUND_PX_PER_SEC * remainSec; }
+
   // Build the repeating parallax strips once (each is 200% wide and scrolls -50%,
   // so the content must repeat across the first half to loop seamlessly).
   function cloudStripHTML() {
@@ -537,9 +571,16 @@
   // flight) instead of resetting to 0 on every rebuild.
   function buildSceneShell(tier) {
     const scene = $('#scene');
+    const airportHTML = '<div class="runway"></div><div class="tower"><div class="tower-cab"></div></div>';
     scene.innerHTML =
       '<div class="layer scroll-clouds paused">' + cloudStripHTML() + '</div>' +
       '<div class="layer scroll-trees paused">' + treeStripHTML() + '</div>' +
+      // Two airports moving at the SAME ground speed as the trees: the one you
+      // depart slides off left; the one you arrive at slides in from the right,
+      // centered exactly at touchdown. Each only ever moves one direction (no
+      // teleport/zoom) and is hidden while off-screen.
+      '<div class="airport" id="airport-dep">' + airportHTML + '</div>' +
+      '<div class="airport" id="airport-arr">' + airportHTML + '</div>' +
       '<div class="plane" data-plane="' + tier + '"></div>' +
       '<div class="flight-label"></div><div class="progress"><i></i></div>';
     sceneTier = tier;
@@ -552,6 +593,8 @@
 
     const scene = $('#scene');
     const plane = $('.plane');
+    const dep = $('#airport-dep');
+    const arr = $('#airport-arr');
     const flying = !!f;
     scene.classList.toggle('flying', flying);
     plane.classList.toggle('flying', flying);
@@ -562,11 +605,31 @@
       const prog = Math.min(1, f.elapsedMs / f.totalMs);
       const pct = Math.round(prog * 100);
       plane.style.top = planeTopForProgress(prog).toFixed(1) + 'px';
+      placeAirport(dep, depRunwayOffset(f.elapsedMs / 1000));               // slides off left
+      placeAirport(arr, arrRunwayOffset((f.totalMs - f.elapsedMs) / 1000)); // slides in from right
       $('.flight-label').textContent = 'Flying to ' + f.place + '… ' + pct + '%';
       $('.progress > i').style.width = pct + '%';
     } else {
       plane.style.top = GROUND_TOP + 'px';
+      placeAirport(dep, 0, true);           // parked: snap (no transition) to centered, no streak
+      arr.classList.add('hidden');          // arrival not needed while parked
     }
+  }
+
+  // Position one airport at a horizontal offset from center, hiding it once it's
+  // fully off-screen so a far-offset element never streaks into view. `snap`
+  // disables the smoothing transition for one frame, for instant repositioning
+  // (e.g. resetting the departure runway to center on landing without a streak).
+  function placeAirport(el, offsetPx, snap) {
+    el.classList.toggle('hidden', Math.abs(offsetPx) >= OFFSCREEN);
+    if (snap) {
+      el.style.transition = 'none';
+      el.style.transform = 'translateX(calc(-50% + ' + offsetPx.toFixed(1) + 'px))';
+      el.offsetWidth;                        // force reflow so the next change re-enables transition
+      el.style.transition = '';
+      return;
+    }
+    el.style.transform = 'translateX(calc(-50% + ' + offsetPx.toFixed(1) + 'px))';
   }
 
   // Update the in-flight job row's gold progress fill (cheap; called each tick on
@@ -610,7 +673,7 @@
     const cp = curPlane();
     const panel =
       '<div class="stat-panel">' +
-        statRow('CARGO', st.capacity, cp.capUps) +
+        statRow('📦 CARGO', st.capacity, cp.capUps) +
         statRow('SPEED', st.speed.toFixed(1), cp.speedUps) +
       '</div>';
     $('#content').innerHTML = panel + '<div class="job-board">' + rows + '</div>';
@@ -639,7 +702,7 @@
         statBar(cp.speedUps) + engineBtn +
       '</div>' +
       '<div class="up-card">' +
-        '<div class="up-title">Cargo Hold · Capacity ' + st.capacity + '</div>' +
+        '<div class="up-title">📦 Cargo Hold · Capacity ' + st.capacity + '</div>' +
         statBar(cp.capUps) + cargoBtn +
       '</div>';
   }
