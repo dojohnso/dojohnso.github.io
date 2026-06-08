@@ -622,7 +622,8 @@
     return h;
   }
 
-  let sceneTier = null; // which plane tier the scene shell was last built for
+  let sceneTier = null;     // which plane tier the scene shell was last built for
+  let sceneFlightId = null; // which flight the scene last rendered (to detect a new takeoff)
 
   // The shell is rebuilt ONLY when the plane tier changes (a new sprite). Flight
   // state is just toggled on the existing nodes, so the scrolling clouds/trees
@@ -664,14 +665,21 @@
       const prog = Math.min(1, f.elapsedMs / f.totalMs);
       const pct = Math.round(prog * 100);
       plane.style.top = planeTopForProgress(prog).toFixed(1) + 'px';
-      placeAirport(dep, depRunwayOffset(f.elapsedMs / 1000));               // slides off left
-      placeAirport(arr, arrRunwayOffset((f.totalMs - f.elapsedMs) / 1000)); // slides in from right
+      // On a NEW flight's first frame (including a queue auto-advance, where there's
+      // no idle frame to snap on), the departure runway jumps from off-screen-left
+      // back to center. Snap it that frame so the transition doesn't animate the
+      // jump (which read as a zoom-in from the left). After that, it glides.
+      const newFlight = f.jobId !== sceneFlightId;
+      placeAirport(dep, depRunwayOffset(f.elapsedMs / 1000), newFlight);    // slides off left
+      placeAirport(arr, arrRunwayOffset((f.totalMs - f.elapsedMs) / 1000), newFlight); // slides in from right
+      sceneFlightId = f.jobId;
       $('.flight-label').textContent = 'Flying to ' + f.place + '… ' + pct + '%';
       $('.progress > i').style.width = pct + '%';
     } else {
       plane.style.top = GROUND_TOP + 'px';
       placeAirport(dep, 0, true);           // parked: snap (no transition) to centered, no streak
       arr.classList.add('hidden');          // arrival not needed while parked
+      sceneFlightId = null;
     }
   }
 
