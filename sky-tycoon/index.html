@@ -710,8 +710,10 @@
     const rows = state.jobs.map(job => {
       const isActive = flying && job.id === f.jobId;             // the job currently in flight
       const takeable = canTakeJob(job, cap);
-      // Tappable when: idle (fly now), or flying with queue room (queue it).
-      const ok = takeable && (!flying || queueHasRoom);
+      // Tappable when: idle (fly now), or flying with queue room (queue it). NOT the
+      // in-flight job itself — it stays on the board for its progress fill, so
+      // without this guard tapping it would enqueue the flying job behind itself.
+      const ok = !isActive && takeable && (!flying || queueHasRoom);
       const locked = !takeable;
       const cls = 'job' + (isActive ? ' active' : (ok ? '' : ' disabled'));
       const initPct = isActive ? Math.round(Math.min(1, f.elapsedMs / f.totalMs) * 100) : 0;
