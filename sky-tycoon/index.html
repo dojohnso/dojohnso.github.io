@@ -255,6 +255,10 @@
     { id: 'jet',   name: 'Small Jet',   cap: 26, speed: 5.1, price: 8000, capStep: 3, speedStep: 0.4 },
   ];
   const BOARD_SIZE = 5;     // jobs visible at once
+  const QUEUE_BASE = 2;            // jobs you can queue with no upgrades
+  const MAX_QUEUE_UPGRADES = 4;    // queue grows from 2 up to 6
+  const QUEUE_COSTS = [50, 120, 250, 500];  // cost of the Nth queue upgrade (0-indexed)
+  function queueUpgradeCost(count) { return QUEUE_COSTS[count]; }
 
   // ---- Pure helpers ----
   // Cost of the next upgrade given how many of that stat you've already bought.
@@ -303,6 +307,8 @@
       // Owned planes → their per-plane upgrade counts. You start owning the prop.
       planes: { prop: { speedUps: 0, capUps: 0 } },
       jobs: [],
+      queue: [],          // jobs lined up to run after the active flight, in order
+      queueUps: 0,        // GLOBAL queue-size upgrade count (not per-plane)
       activeFlight: null, // { jobId, place, totalMs, elapsedMs, payout }
     };
   }
@@ -319,6 +325,7 @@
       // Merge onto fresh defaults so missing fields don't break older saves.
       const merged = Object.assign(freshState(), parsed);
       if (!Array.isArray(merged.jobs)) merged.jobs = [];
+      if (!Array.isArray(merged.queue)) merged.queue = [];   // corrupt/old save → empty queue
       // Migrate legacy saves (old single-plane shape: top-level speedUps/capUps,
       // no own `planes` map). Decide based on the SAVED data (parsed), because
       // freshState() always supplies a default planes map. Seed the planes map
@@ -344,6 +351,7 @@
   // The upgrade record for the plane currently being flown.
   function curPlane() { return state.planes[state.planeId]; }
 
+  function queueSize() { return QUEUE_BASE + state.queueUps; }   // current max queue length
   function currentStats() { return planeStats(state.planeId, curPlane().speedUps, curPlane().capUps); }
 
   // ---- Actions ----
@@ -857,6 +865,20 @@
     window.addEventListener('load', function () {
       navigator.serviceWorker.register('./sw.js').catch(function () {});
     });
+  }
+
+  if (location.search.includes('test')) {
+    state = freshState();
+    console.assert(queueSize() === 2, 'base queue size 2, got ' + queueSize());
+    state.queueUps = 4;
+    console.assert(queueSize() === 6, 'maxed queue size 6, got ' + queueSize());
+    console.assert(queueUpgradeCost(0) === 50 && queueUpgradeCost(3) === 500, 'queue costs 50..500');
+    // corrupt-queue migration
+    localStorage.setItem('skyTycoonSave_v1', JSON.stringify({ money: 1, queue: 'nope', jobs: [], activeFlight: null }));
+    const loaded = load();
+    console.assert(Array.isArray(loaded.queue) && loaded.queue.length === 0, 'corrupt queue → []');
+    localStorage.removeItem('skyTycoonSave_v1');
+    console.log('Sky Tycoon queue tests T1: done (check for assertion errors above)');
   }
 </script>
 </body>
