@@ -148,6 +148,18 @@
   .stat-val { font-size:17px; font-weight:800; color:#fff; margin:2px 0 6px; }
   .stat-max { font-size:10px; font-weight:800; color:var(--ink); background:var(--gold);
     padding:1px 5px; border-radius:3px; vertical-align:middle; letter-spacing:1px; }
+  /* queue strip (FLY view) */
+  .queue-strip { margin-bottom:12px; }
+  .queue-label { font-size:11px; font-weight:800; letter-spacing:1px; color:#9fb0c8; margin-bottom:6px; }
+  .queue-slots { display:flex; gap:6px; }
+  .queue-slot { flex:1; min-width:0; height:46px; border:2px solid #3a425c; border-radius:4px;
+    background:#1b2030; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-size:11px; color:#c8d2e0; padding:2px; }
+  .queue-slot.filled { background:#252b3d; border-color:#5bb8e0; cursor:pointer; }
+  .queue-slot.empty  { border-style:dashed; color:#5a6577; }
+  .queue-slot .qs-place { font-weight:800; font-size:11px; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; max-width:100%; }
+  .queue-slot .qs-meta { opacity:.8; }
   .statbar { display:flex; gap:3px; }
   .statbar > i { flex:1; height:8px; background:#10141f; border:1px solid #3a425c; }
   .statbar > i.on { background:#5bb8e0; border-color:#5bb8e0; }
@@ -694,10 +706,13 @@
     const cap = currentStats().capacity;
     const f = state.activeFlight;
     const flying = !!f;
+    const queueHasRoom = state.queue.length < queueSize();
     const rows = state.jobs.map(job => {
-      const isActive = flying && job.id === f.jobId;     // the job currently in flight
-      const ok = canTakeJob(job, cap) && !flying;
-      const locked = !canTakeJob(job, cap);
+      const isActive = flying && job.id === f.jobId;             // the job currently in flight
+      const takeable = canTakeJob(job, cap);
+      // Tappable when: idle (fly now), or flying with queue room (queue it).
+      const ok = takeable && (!flying || queueHasRoom);
+      const locked = !takeable;
       const cls = 'job' + (isActive ? ' active' : (ok ? '' : ' disabled'));
       const initPct = isActive ? Math.round(Math.min(1, f.elapsedMs / f.totalMs) * 100) : 0;
       return (
@@ -723,7 +738,28 @@
         statRow('📦 CARGO', st.capacity, cp.capUps) +
         statRow('SPEED', st.speed.toFixed(1), cp.speedUps) +
       '</div>';
-    $('#content').innerHTML = panel + '<div class="job-board">' + rows + '</div>';
+    $('#content').innerHTML = panel + queueStripHTML() + '<div class="job-board">' + rows + '</div>';
+  }
+
+  // The queue strip: a label + a row of slots (filled jobs are tap-to-remove).
+  function queueStripHTML() {
+    const size = queueSize();
+    let slots = '';
+    for (let i = 0; i < size; i++) {
+      const job = state.queue[i];
+      if (job) {
+        slots += '<div class="queue-slot filled" data-dequeue="' + job.id + '" title="Remove from queue">' +
+          '<div class="qs-place">→ ' + job.place + '</div>' +
+          '<div class="qs-meta">📦 ' + job.cargo + '</div>' +
+        '</div>';
+      } else {
+        slots += '<div class="queue-slot empty">·</div>';
+      }
+    }
+    return '<div class="queue-strip">' +
+      '<div class="queue-label">QUEUE ' + state.queue.length + '/' + size + '</div>' +
+      '<div class="queue-slots">' + slots + '</div>' +
+    '</div>';
   }
 
   function renderUpgrade() {
@@ -830,10 +866,18 @@
       if (declineJob(declineEl.dataset.decline)) renderAll();
       return;
     }
+    const dequeueEl = e.target.closest('[data-dequeue]');
+    if (dequeueEl) {
+      if (dequeueJob(dequeueEl.dataset.dequeue)) renderAll();
+      return;
+    }
     const jobEl = e.target.closest('[data-job]');
     if (jobEl) {
       const job = state.jobs.find(j => j.id === jobEl.dataset.job);
-      if (job && startJob(job)) renderAll();
+      if (job) {
+        const acted = state.activeFlight ? enqueueJob(job) : startJob(job);
+        if (acted) renderAll();
+      }
       return;
     }
     const upBtn = e.target.closest('[data-up]');
