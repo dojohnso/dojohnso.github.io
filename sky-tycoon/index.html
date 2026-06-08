@@ -141,6 +141,15 @@
   @media (hover: hover) {
     .job-decline:hover { background:#ff6b5e; color:#fff; opacity:1; }
   }
+  /* lock shown in the decline slot when flying without autopilot-on (same box as ✕) */
+  .job-lock { flex-shrink:0; width:26px; height:26px; display:flex; align-items:center;
+    justify-content:center; font-size:13px; opacity:.5; pointer-events:none; }
+  /* autopilot hint + toggle (Fly view) */
+  .autopilot-hint { font-size:11px; color:#9fb0c8; margin:0 0 10px; opacity:.9; }
+  .autopilot-toggle { font-family:inherit; font-weight:800; font-size:12px; letter-spacing:1px;
+    border:2px solid #3a425c; background:#1b2030; color:#9fb0c8; border-radius:6px;
+    padding:8px 12px; cursor:pointer; margin-bottom:12px; width:100%; }
+  .autopilot-toggle.on { border-color:var(--gold); color:var(--ink); background:var(--gold); }
   /* stat panel (main view) + shared segmented bars */
   .stat-panel { display:flex; gap:10px; margin-bottom:12px; }
   .stat-row { flex:1; background:#252b3d; border:2px solid #3a425c; padding:8px 10px; }
@@ -199,6 +208,7 @@
   .switch-btn { flex-shrink:0; width:auto; padding:10px 16px; font-family:inherit;
     font-weight:800; font-size:13px; color:#fff; background:#1d6fa5; border:none; cursor:pointer; }
   .switch-btn.disabled { background:#555c70; color:#9aa; cursor:default; }
+  .switch-hint { display:block; font-size:10px; color:#9fb0c8; margin-top:4px; text-align:right; opacity:.85; }
   /* title screen */
   #title { display:none; position:absolute; inset:0; z-index:20; overflow:hidden;
     flex-direction:column; align-items:center; justify-content:center; gap:18px;
@@ -278,6 +288,7 @@
   const MAX_QUEUE_UPGRADES = 4;    // queue grows from 2 up to 6
   const QUEUE_COSTS = [50, 120, 250, 500];  // cost of the Nth queue upgrade (0-indexed)
   function queueUpgradeCost(count) { return QUEUE_COSTS[count]; }
+  const AUTOPILOT_PRICE = 5000;    // one-time autopilot unlock
 
   // ---- Pure helpers ----
   // Cost of the next upgrade given how many of that stat you've already bought.
@@ -328,6 +339,8 @@
       jobs: [],
       queue: [],          // jobs lined up to run after the active flight, in order
       queueUps: 0,        // GLOBAL queue-size upgrade count (not per-plane)
+      autopilotOwned: false, // bought autopilot? (account-level, permanent)
+      autopilotOn: false,    // autopilot toggle (only meaningful when owned)
       activeFlight: null, // { jobId, place, totalMs, elapsedMs, payout }
     };
   }
@@ -487,14 +500,61 @@
     return true;
   }
 
+  function buyAutopilot() {
+    if (state.autopilotOwned) return false;
+    if (state.money < AUTOPILOT_PRICE) return false;
+    state.money -= AUTOPILOT_PRICE;
+    state.autopilotOwned = true;
+    save();
+    return true;
+  }
+
+  function toggleAutopilot() {
+    if (!state.autopilotOwned) return false;
+    state.autopilotOn = !state.autopilotOn;
+    save();
+    return true;
+  }
+
+  // The takeable board job with the highest $/sec (payout ÷ effective flight time).
+  // null if no board job fits current capacity. effSeconds matches startJob's timing.
+  function bestTakeableJob() {
+    const cap = currentStats().capacity;
+    const speed = currentStats().speed;
+    let best = null, bestRate = -1;
+    for (const job of state.jobs) {
+      if (job.cargo > cap) continue;                 // not takeable
+      const effSeconds = job.flightTime / speed;
+      const rate = job.payout / effSeconds;
+      if (rate > bestRate) { bestRate = rate; best = job; }
+    }
+    return best;
+  }
+
+  // When autopilot is owned + ON, keep the queue topped up with the best takeable
+  // jobs. Reuses enqueueJob (which starts the first flight from idle). Returns true
+  // if it added at least one job (so the caller can re-render).
+  function autoFillQueue() {
+    if (!(state.autopilotOwned && state.autopilotOn)) return false;
+    let added = false;
+    while (state.queue.length < queueSize()) {
+      const job = bestTakeableJob();
+      if (!job) break;                 // nothing takeable on the board
+      if (!enqueueJob(job)) break;     // safety: stop if it refused
+      added = true;
+    }
+    return added;
+  }
+
   function buyPlane(planeId) {
-    if (state.activeFlight) return false;                // can't buy/swap mid-flight
     const plane = PLANES.find(p => p.id === planeId);
     if (!plane || state.planes[planeId]) return false;   // invalid or already owned
     if (state.money < plane.price) return false;
     state.money -= plane.price;
     state.planes[planeId] = { speedUps: 0, capUps: 0 };  // now owned, fresh upgrades
-    state.planeId = planeId;                             // start flying it
+    // Only auto-fly the new plane when parked. Mid-flight, you own it but keep
+    // flying the current plane until you land (then you can Switch to it).
+    if (!state.activeFlight) state.planeId = planeId;
     // New (larger) capacity may make current locked jobs takeable; board stays.
     save();
     return true;
@@ -665,7 +725,15 @@
   function renderScene() {
     const f = state.activeFlight;
     const tier = state.planeId;
-    if (sceneTier !== tier) buildSceneShell(tier);
+    if (sceneTier === null) {
+      buildSceneShell(tier);                 // first build: create the scene shell
+    } else if (sceneTier !== tier) {
+      // Plane switched: swap only the plane sprite, keeping the clouds/trees layers
+      // (and their animation position) intact — no rebuild, no scroll reset.
+      const planeEl = $('.plane');
+      if (planeEl) planeEl.setAttribute('data-plane', tier);
+      sceneTier = tier;
+    }
 
     const scene = $('#scene');
     const plane = $('.plane');
@@ -730,12 +798,19 @@
     const cap = currentStats().capacity;
     const f = state.activeFlight;
     const flying = !!f;
+    const autoActive = state.autopilotOwned && state.autopilotOn;
+    const locked = flying && !autoActive;   // flying but can't manage the board
     const queueHasRoom = state.queue.length < queueSize();
     const rows = state.jobs.map(job => {
       const takeable = canTakeJob(job, cap);
       const ok = takeable && queueHasRoom;     // tappable when room in the queue
-      const locked = !takeable;
+      const isLockedRow = !takeable;
       const cls = 'job' + (ok ? '' : ' disabled');
+      // decline slot: working ✕ when NOT locked; a non-interactive 🔒 when locked.
+      const slot = locked
+        ? '<div class="job-lock" title="Autopilot lets you manage jobs while flying">🔒</div>'
+        : '<button class="job-decline" data-decline="' + job.id +
+            '" title="Decline this job" aria-label="Decline job">✕</button>';
       return (
         '<div class="' + cls + '" ' + (ok ? 'data-job="' + job.id + '"' : '') + '>' +
           '<div class="job-main">' +
@@ -743,10 +818,9 @@
             '<div class="job-meta">📦 ' + job.cargo + '  ·  ' + job.flightTime + 's</div>' +
           '</div>' +
           '<div class="job-pay">' + fmt(job.payout) +
-            (locked ? '<span class="lock">Need more capacity</span>' : '') +
+            (isLockedRow ? '<span class="lock">Need more capacity</span>' : '') +
           '</div>' +
-          (flying ? '' : '<button class="job-decline" data-decline="' + job.id +
-            '" title="Decline this job" aria-label="Decline job">✕</button>') +
+          slot +
         '</div>'
       );
     }).join('');
@@ -757,7 +831,14 @@
         statRow('📦 CARGO', st.capacity, cp.capUps) +
         statRow('SPEED', st.speed.toFixed(1), cp.speedUps) +
       '</div>';
-    $('#content').innerHTML = panel + queueStripHTML() + '<div class="job-board">' + rows + '</div>';
+    const toggle = state.autopilotOwned
+      ? '<button class="autopilot-toggle' + (state.autopilotOn ? ' on' : '') +
+          '" data-autopilot-toggle>AUTOPILOT: ' + (state.autopilotOn ? 'ON' : 'OFF') + '</button>'
+      : '';
+    const hint = locked
+      ? '<div class="autopilot-hint">✈ Autopilot lets you manage jobs while flying.</div>'
+      : '';
+    $('#content').innerHTML = panel + toggle + queueStripHTML() + hint + '<div class="job-board">' + rows + '</div>';
   }
 
   // The queue strip: a label + a row of slots (filled jobs are tap-to-remove).
@@ -833,7 +914,8 @@
         right = '<span class="owned">FLYING</span>';
       } else if (owned) {
         right = '<button class="switch-btn' + (flying ? ' disabled' : '') +
-                '" data-switch="' + p.id + '">Switch</button>';
+                '" data-switch="' + p.id + '">Switch</button>' +
+                (flying ? '<span class="switch-hint">Land to switch</span>' : '');
       } else {
         const affordable = state.money >= p.price;
         right = '<button class="buy-btn' + (affordable ? '' : ' disabled') +
@@ -848,7 +930,18 @@
         '</div>'
       );
     }).join('');
-    $('#content').innerHTML = '<div class="shop-list">' + rows + '</div>';
+    const apOwned = state.autopilotOwned;
+    const apAffordable = !apOwned && state.money >= AUTOPILOT_PRICE;
+    const apRight = apOwned
+      ? '<span class="owned">OWNED</span>'
+      : '<button class="buy-btn' + (apAffordable ? '' : ' disabled') + '" data-buy-autopilot>' + fmt(AUTOPILOT_PRICE) + '</button>';
+    const apRow =
+      '<div class="plane-row">' +
+        '<div class="plane-info"><div class="plane-name">🤖 Autopilot</div>' +
+        '<div class="plane-stats">Auto-flies jobs · manage board while flying</div></div>' +
+        apRight +
+      '</div>';
+    $('#content').innerHTML = '<div class="shop-list">' + rows + apRow + '</div>';
   }
 
   function renderCurrentView() {
@@ -875,6 +968,10 @@
   // ---- Loop ----
   const TICK_MS = 100;
   function tick() {
+    // Autopilot tops up the queue (and kicks off the first flight when parked).
+    const autoAdded = autoFillQueue();
+    if (autoAdded && screen === 'game' && currentView === 'fly') renderAll();
+
     const f = state.activeFlight;
     if (f) {
       // Drive progress from wall-clock so a mid-flight reload keeps its place.
@@ -922,6 +1019,16 @@
     const switchEl = e.target.closest('[data-switch]');
     if (switchEl) {
       if (switchPlane(switchEl.dataset.switch)) renderAll();
+      return;
+    }
+    const apToggle = e.target.closest('[data-autopilot-toggle]');
+    if (apToggle) {
+      if (toggleAutopilot()) renderAll();
+      return;
+    }
+    const apBuy = e.target.closest('[data-buy-autopilot]');
+    if (apBuy) {
+      if (buyAutopilot()) renderAll();
       return;
     }
     const planeBtn = e.target.closest('[data-plane]');
