@@ -160,6 +160,13 @@
   .queue-slot .qs-place { font-weight:800; font-size:11px; white-space:nowrap; overflow:hidden;
     text-overflow:ellipsis; max-width:100%; }
   .queue-slot .qs-meta { opacity:.8; }
+  /* the flying job's slot (slot 0): gold progress fill tracking --pct, like the old job row */
+  .queue-slot { position:relative; overflow:hidden; }
+  .queue-slot.active { border-color:var(--gold); cursor:default; }
+  .queue-slot.active::before { content:''; position:absolute; inset:0; z-index:0;
+    width:var(--pct,0%); background:linear-gradient(90deg, rgba(255,216,58,.30), rgba(255,216,58,.14));
+    transition:width .12s linear; pointer-events:none; }
+  .queue-slot > * { position:relative; z-index:1; }
   .statbar { display:flex; gap:3px; }
   .statbar > i { flex:1; height:8px; background:#10141f; border:1px solid #3a425c; }
   .statbar > i.on { background:#5bb8e0; border-color:#5bb8e0; }
@@ -338,6 +345,12 @@
       const merged = Object.assign(freshState(), parsed);
       if (!Array.isArray(merged.jobs)) merged.jobs = [];
       if (!Array.isArray(merged.queue)) merged.queue = [];   // corrupt/old save → empty queue
+      // Unified-queue invariant: if a flight is active, its job must be queue[0].
+      // Old saves kept the flying job OUT of the queue — migrate it to the front.
+      const af = merged.activeFlight;
+      if (af && (!merged.queue[0] || merged.queue[0].id !== af.jobId)) {
+        merged.queue.unshift({ id: af.jobId, place: af.place, payout: af.payout, cargo: 1, flightTime: 1 });
+      }
       // Migrate legacy saves (old single-plane shape: top-level speedUps/capUps,
       // no own `planes` map). Decide based on the SAVED data (parsed), because
       // freshState() always supplies a default planes map. Seed the planes map
@@ -388,22 +401,25 @@
     return true;
   }
 
-  // Add a takeable board job to the queue (only while a flight is active and the
-  // queue has room). Moves the job off the board and refills. Isolated so a future
-  // autopilot can call it. Returns true if queued.
+  // Add a takeable board job to the queue. The queue holds the active flight (slot
+  // 0) plus waiting jobs, so this works whether or not a flight is active: it pushes
+  // the job and, if nothing is flying, starts it (it's now at the front). Isolated
+  // as the autopilot hook. Returns true if added.
   function enqueueJob(job) {
-    if (!state.activeFlight) return false;                 // queue only while flying
-    if (state.queue.length >= queueSize()) return false;   // queue full
+    if (state.queue.length >= queueSize()) return false;         // all slots full
     if (!canTakeJob(job, currentStats().capacity)) return false; // takeable only
-    state.jobs = state.jobs.filter(j => j.id !== job.id);  // move off the board
+    state.jobs = state.jobs.filter(j => j.id !== job.id);        // move off the board
     state.queue.push(job);
+    if (!state.activeFlight) startJob(job);                      // it's now the front → fly it
     refillBoard();
     save();
     return true;
   }
 
-  // Remove a job from the queue (it disappears; board refills to stay full).
+  // Remove a WAITING job from the queue (slot 1+). The flying job (slot 0) can't be
+  // removed. The removed job disappears; board refills to stay full.
   function dequeueJob(jobId) {
+    if (state.activeFlight && state.queue[0] && state.queue[0].id === jobId) return false; // can't cancel the flying job
     const before = state.queue.length;
     state.queue = state.queue.filter(j => j.id !== jobId);
     if (state.queue.length === before) return false;       // unknown id
@@ -429,11 +445,11 @@
     const f = state.activeFlight;
     if (!f) return;
     state.money += f.payout;
-    state.jobs = state.jobs.filter(j => j.id !== f.jobId); // harmless if it was a queued job
+    state.queue.shift();             // the finished flight was queue[0]; remove it
     state.activeFlight = null;
-    // Auto-advance: if jobs are queued, take off with the next one immediately.
+    // Promote the next queued job to flying (it's now the front), if any.
     if (state.queue.length > 0) {
-      startJob(state.queue.shift());                       // startJob saves; uses current stats
+      startJob(state.queue[0]);      // startJob saves; uses current stats
     }
     refillBoard();
     save();
@@ -699,15 +715,15 @@
     el.style.transform = 'translateX(calc(-50% + ' + offsetPx.toFixed(1) + 'px))';
   }
 
-  // Update the in-flight job row's gold progress fill (cheap; called each tick on
-  // the Fly view). The row itself is built by renderFly with data-active-job.
+  // Update the flying job's queue-slot gold fill (cheap; called each tick on the
+  // Fly view). Slot 0 is built by queueStripHTML with class `active`.
   function updateActiveJobProgress() {
     const f = state.activeFlight;
     if (!f) return;
-    const row = $('[data-active-job]');
-    if (!row) return;
+    const slot = $('.queue-slot.active');
+    if (!slot) return;
     const pct = Math.round(Math.min(1, f.elapsedMs / f.totalMs) * 100);
-    row.style.setProperty('--pct', pct + '%');
+    slot.style.setProperty('--pct', pct + '%');
   }
 
   function renderFly() {
@@ -716,19 +732,12 @@
     const flying = !!f;
     const queueHasRoom = state.queue.length < queueSize();
     const rows = state.jobs.map(job => {
-      const isActive = flying && job.id === f.jobId;             // the job currently in flight
       const takeable = canTakeJob(job, cap);
-      // Tappable when: idle (fly now), or flying with queue room (queue it). NOT the
-      // in-flight job itself — it stays on the board for its progress fill, so
-      // without this guard tapping it would enqueue the flying job behind itself.
-      const ok = !isActive && takeable && (!flying || queueHasRoom);
+      const ok = takeable && queueHasRoom;     // tappable when room in the queue
       const locked = !takeable;
-      const cls = 'job' + (isActive ? ' active' : (ok ? '' : ' disabled'));
-      const initPct = isActive ? Math.round(Math.min(1, f.elapsedMs / f.totalMs) * 100) : 0;
+      const cls = 'job' + (ok ? '' : ' disabled');
       return (
-        '<div class="' + cls + '" ' +
-          (ok ? 'data-job="' + job.id + '"' : '') +
-          (isActive ? ' data-active-job style="--pct:' + initPct + '%"' : '') + '>' +
+        '<div class="' + cls + '" ' + (ok ? 'data-job="' + job.id + '"' : '') + '>' +
           '<div class="job-main">' +
             '<div class="job-who">' + job.customer + ' → ' + job.place + '</div>' +
             '<div class="job-meta">📦 ' + job.cargo + '  ·  ' + job.flightTime + 's</div>' +
@@ -754,13 +763,16 @@
   // The queue strip: a label + a row of slots (filled jobs are tap-to-remove).
   function queueStripHTML() {
     const size = queueSize();
+    const f = state.activeFlight;
     let slots = '';
     for (let i = 0; i < size; i++) {
       const job = state.queue[i];
       if (job) {
-        slots += '<div class="queue-slot filled" data-dequeue="' + job.id + '" title="Remove from queue">' +
+        const isFlying = !!f && i === 0;     // slot 0 is the active flight
+        const pct = isFlying ? Math.round(Math.min(1, f.elapsedMs / f.totalMs) * 100) : 0;
+        slots += '<div class="queue-slot filled' + (isFlying ? ' active" style="--pct:' + pct + '%"' : '" data-dequeue="' + job.id + '" title="Remove from queue"') + '>' +
           '<div class="qs-place">→ ' + job.place + '</div>' +
-          '<div class="qs-meta">📦 ' + job.cargo + '</div>' +
+          '<div class="qs-meta">' + fmt(job.payout) + '</div>' +
         '</div>';
       } else {
         slots += '<div class="queue-slot empty">·</div>';
@@ -895,10 +907,7 @@
     const jobEl = e.target.closest('[data-job]');
     if (jobEl) {
       const job = state.jobs.find(j => j.id === jobEl.dataset.job);
-      if (job) {
-        const acted = state.activeFlight ? enqueueJob(job) : startJob(job);
-        if (acted) renderAll();
-      }
+      if (job && enqueueJob(job)) renderAll();
       return;
     }
     const upBtn = e.target.closest('[data-up]');
