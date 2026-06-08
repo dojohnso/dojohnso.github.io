@@ -779,6 +779,13 @@
       ? '<div class="up-maxed">MAXED — buy a bigger plane in the Shop</div>'
       : '<button class="up-btn' + (canCargo ? '' : ' disabled') + '" data-up="cargo">' +
           'Upgrade Cargo Hold — ' + fmt(cargoCost) + '</button>';
+    const queueMaxed = state.queueUps >= MAX_QUEUE_UPGRADES;
+    const queueCost = queueMaxed ? 0 : queueUpgradeCost(state.queueUps);
+    const canQueue = !queueMaxed && state.money >= queueCost;
+    const queueBtn = queueMaxed
+      ? '<div class="up-maxed">MAXED — queue is at its biggest</div>'
+      : '<button class="up-btn' + (canQueue ? '' : ' disabled') + '" data-up="queue">' +
+          'Upgrade Queue — ' + fmt(queueCost) + '</button>';
     $('#content').innerHTML =
       '<div class="up-card">' +
         '<div class="up-title">Engine · Speed ' + st.speed.toFixed(2) + '</div>' +
@@ -787,6 +794,10 @@
       '<div class="up-card">' +
         '<div class="up-title">📦 Cargo Hold · Capacity ' + st.capacity + '</div>' +
         statBar(cp.capUps) + cargoBtn +
+      '</div>' +
+      '<div class="up-card">' +
+        '<div class="up-title">Queue · Size ' + queueSize() + '</div>' +
+        statBar(state.queueUps, MAX_QUEUE_UPGRADES) + queueBtn +
       '</div>';
   }
 
@@ -882,7 +893,10 @@
     }
     const upBtn = e.target.closest('[data-up]');
     if (upBtn) {
-      const ok = upBtn.dataset.up === 'engine' ? buyEngineUpgrade() : buyCargoUpgrade();
+      const which = upBtn.dataset.up;
+      const ok = which === 'engine' ? buyEngineUpgrade()
+               : which === 'cargo'  ? buyCargoUpgrade()
+               : which === 'queue'  ? buyQueueUpgrade() : false;
       if (ok) renderAll();
       return;
     }
