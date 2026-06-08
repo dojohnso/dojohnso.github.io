@@ -449,6 +449,16 @@
     return true;
   }
 
+  function buyQueueUpgrade() {
+    if (state.queueUps >= MAX_QUEUE_UPGRADES) return false; // queue maxed
+    const cost = queueUpgradeCost(state.queueUps);
+    if (state.money < cost) return false;
+    state.money -= cost;
+    state.queueUps += 1;
+    save();
+    return true;
+  }
+
   function buyPlane(planeId) {
     if (state.activeFlight) return false;                // can't buy/swap mid-flight
     const plane = PLANES.find(p => p.id === planeId);
@@ -523,10 +533,11 @@
   // A segmented upgrade-progress bar. Drawn with MAX_UPGRADES+1 pips and the
   // first pip always lit (a fresh plane reads as 1/6, not an empty/decorative
   // bar), filling one more per upgrade up to a fully-gold 6/6 when maxed.
-  function statBar(count) {
-    const maxed = count >= MAX_UPGRADES;
+  function statBar(count, max) {
+    if (max == null) max = MAX_UPGRADES;
+    const maxed = count >= max;
     const filled = count + 1;            // base level counts as the first pip
-    const total = MAX_UPGRADES + 1;
+    const total = max + 1;
     let pips = '';
     for (let i = 0; i < total; i++) {
       pips += '<i class="' + (i < filled ? 'on' : '') + (maxed ? ' max' : '') + '"></i>';
@@ -941,6 +952,15 @@
     startJob(state.jobs.find(j => j.cargo <= currentStats().capacity));
     completeFlight();
     console.assert(state.activeFlight === null, 'empty queue → parked');
+    localStorage.removeItem('skyTycoonSave_v1');
+    state = freshState(); state.money = 9999;
+    console.assert(buyQueueUpgrade() === true && state.queueUps === 1, 'buy queue upgrade');
+    console.assert(state.money === 9999 - 50, 'queue upgrade costs $50 first');
+    state.queueUps = MAX_QUEUE_UPGRADES;
+    console.assert(buyQueueUpgrade() === false, 'cannot buy past max queue');
+    // parameterized statBar pip counts
+    console.assert((statBar(0).match(/<i/g) || []).length === MAX_UPGRADES + 1, 'default bar has MAX_UPGRADES+1 pips');
+    console.assert((statBar(0, MAX_QUEUE_UPGRADES).match(/<i/g) || []).length === MAX_QUEUE_UPGRADES + 1, 'queue bar has MAX_QUEUE_UPGRADES+1 pips');
     localStorage.removeItem('skyTycoonSave_v1');
     console.log('Sky Tycoon queue tests T1: done (check for assertion errors above)');
   }
