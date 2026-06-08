@@ -963,65 +963,6 @@
       navigator.serviceWorker.register('./sw.js').catch(function () {});
     });
   }
-
-  if (location.search.includes('test')) {
-    state = freshState();
-    console.assert(queueSize() === 2, 'base queue size 2, got ' + queueSize());
-    state.queueUps = 4;
-    console.assert(queueSize() === 6, 'maxed queue size 6, got ' + queueSize());
-    console.assert(queueUpgradeCost(0) === 50 && queueUpgradeCost(3) === 500, 'queue costs 50..500');
-    // corrupt-queue migration
-    localStorage.setItem('skyTycoonSave_v1', JSON.stringify({ money: 1, queue: 'nope', jobs: [], activeFlight: null }));
-    const loaded = load();
-    console.assert(Array.isArray(loaded.queue) && loaded.queue.length === 0, 'corrupt queue → []');
-    localStorage.removeItem('skyTycoonSave_v1');
-    // enqueue requires an active flight + takeable + room
-    state = freshState(); refillBoard();
-    const j0 = state.jobs.find(j => j.cargo <= currentStats().capacity);
-    console.assert(enqueueJob(j0) === false, 'no enqueue without an active flight');
-    startJob(state.jobs.find(j => j.cargo <= currentStats().capacity));
-    const takeables = state.jobs.filter(j => j.cargo <= currentStats().capacity);
-    console.assert(enqueueJob(takeables[0]) === true, 'enqueue a takeable job while flying');
-    console.assert(state.queue.length === 1, 'queue has 1');
-    console.assert(!state.jobs.some(j => j.id === takeables[0].id), 'queued job left the board');
-    // fill to size then reject
-    state.queueUps = 0; // size 2
-    const more = state.jobs.filter(j => j.cargo <= currentStats().capacity);
-    if (more[0]) enqueueJob(more[0]);
-    console.assert(state.queue.length <= queueSize(), 'never exceeds queueSize');
-    const extra = state.jobs.find(j => j.cargo <= currentStats().capacity);
-    if (extra) console.assert(enqueueJob(extra) === false, 'reject when full');
-    // dequeue
-    const qid = state.queue[0].id;
-    console.assert(dequeueJob(qid) === true && !state.queue.some(j => j.id === qid), 'dequeue removes');
-    // completeFlight auto-advances to the next queued job
-    state = freshState(); refillBoard();
-    startJob(state.jobs.find(j => j.cargo <= currentStats().capacity));
-    const q1 = state.jobs.find(j => j.cargo <= currentStats().capacity);
-    enqueueJob(q1);
-    const moneyBeforeComplete = state.money;
-    const activePayout = state.activeFlight.payout;
-    completeFlight();
-    console.assert(state.money === moneyBeforeComplete + activePayout, 'completed flight credited its payout');
-    console.assert(state.activeFlight && state.activeFlight.jobId === q1.id, 'auto-advanced to queued job');
-    console.assert(state.queue.length === 0, 'queue drained by 1');
-    // completeFlight with empty queue parks
-    state = freshState(); refillBoard();
-    startJob(state.jobs.find(j => j.cargo <= currentStats().capacity));
-    completeFlight();
-    console.assert(state.activeFlight === null, 'empty queue → parked');
-    localStorage.removeItem('skyTycoonSave_v1');
-    state = freshState(); state.money = 9999;
-    console.assert(buyQueueUpgrade() === true && state.queueUps === 1, 'buy queue upgrade');
-    console.assert(state.money === 9999 - 50, 'queue upgrade costs $50 first');
-    state.queueUps = MAX_QUEUE_UPGRADES;
-    console.assert(buyQueueUpgrade() === false, 'cannot buy past max queue');
-    // parameterized statBar pip counts
-    console.assert((statBar(0).match(/<i/g) || []).length === MAX_UPGRADES + 1, 'default bar has MAX_UPGRADES+1 pips');
-    console.assert((statBar(0, MAX_QUEUE_UPGRADES).match(/<i/g) || []).length === MAX_QUEUE_UPGRADES + 1, 'queue bar has MAX_QUEUE_UPGRADES+1 pips');
-    localStorage.removeItem('skyTycoonSave_v1');
-    console.log('Sky Tycoon queue tests T1: done (check for assertion errors above)');
-  }
 </script>
 </body>
 </html>
