@@ -680,16 +680,18 @@
   // Ground scroll speed, matched to the trees so the runway parallax is correct:
   // the trees layer is 200% wide and travels -50% (= -100% of the scene width)
   // over 3.2s, i.e. one scene-width per 3.2s. Runways move at this same speed.
-  const TREE_CYCLE_SEC = 3.2;
   const SCENE_W = 420;                                  // app max-width (scene width)
-  const GROUND_PX_PER_SEC = SCENE_W / TREE_CYCLE_SEC;   // ≈131 px/s
   const OFFSCREEN = SCENE_W / 2 + 90;                   // past the edge incl. airport half-width
-  // Two airports anchored in the moving ground:
-  //  - departure: centered at takeoff (elapsed 0), then slides left at ground speed.
-  //  - arrival: slides in from the right at ground speed, centered at touchdown
-  //    (when remaining time is 0). Each only moves one direction; hidden off-screen.
-  function depRunwayOffset(elapsedSec)  { return -GROUND_PX_PER_SEC * elapsedSec; }
-  function arrRunwayOffset(remainSec)   { return  GROUND_PX_PER_SEC * remainSec; }
+  // Airports are PROGRESS milestones, not ground-speed-tracked positions — so their
+  // spacing is the same one-screen-width regardless of plane speed (fast planes don't
+  // collapse the gap / make them overlap and jump). The trees/clouds still scroll fast,
+  // so speed reads via the parallax; the airports just mark "departed here → arriving
+  // there" across the flight: departure centered at 0%, gone by DEP_OUT; open sky;
+  // arrival slides in from ARR_IN, centered at 100%. Each only moves one direction.
+  const DEP_OUT = 0.35;   // departure airport fully off-screen-left by this progress
+  const ARR_IN  = 0.65;   // arrival airport starts sliding in from off-screen-right here
+  function depRunwayOffset(prog) { return -OFFSCREEN * Math.min(1, prog / DEP_OUT); }
+  function arrRunwayOffset(prog) { return  OFFSCREEN * (1 - Math.max(0, (prog - ARR_IN) / (1 - ARR_IN))); }
 
   // Build the repeating parallax strips once (each is 200% wide and scrolls -50%,
   // so the content must repeat across the first half to loop seamlessly).
@@ -772,8 +774,8 @@
       // back to center. Snap it that frame so the transition doesn't animate the
       // jump (which read as a zoom-in from the left). After that, it glides.
       const newFlight = f.jobId !== sceneFlightId;
-      placeAirport(dep, depRunwayOffset(f.elapsedMs / 1000), newFlight);    // slides off left
-      placeAirport(arr, arrRunwayOffset((f.totalMs - f.elapsedMs) / 1000), newFlight); // slides in from right
+      placeAirport(dep, depRunwayOffset(prog), newFlight);    // centered at 0%, slides off left by DEP_OUT
+      placeAirport(arr, arrRunwayOffset(prog), newFlight);    // slides in from ARR_IN, centered at 100%
       sceneFlightId = f.jobId;
       $('.flight-label').textContent = 'Flying to ' + f.place + '… ' + pct + '%';
       $('.progress > i').style.width = pct + '%';
