@@ -687,17 +687,28 @@
   // Scene altitude (plane `top` in px). Ground = parked on grass; cruise = high.
   const GROUND_TOP = 96, CRUISE_TOP = 26;
   const MIN_FLIGHT_MS = 2000;            // floor so fast flights aren't a sub-second bounce
-  const CLIMB_MS = 700, DESCENT_MS = 700; // fixed wall-clock takeoff/landing (clamped per flight)
-  const MAX_CLIMB_FRAC = 0.45;           // climb/descent each capped at this fraction of the flight
-  // Map flight progress (0..1) to a takeoff → cruise → landing altitude curve. The climb
-  // and descent each take a fixed wall-clock time (CLIMB_MS/DESCENT_MS), converted to a
-  // progress fraction of this flight and clamped to MAX_CLIMB_FRAC — so even a fast (short)
-  // flight gets a smooth, consistent-speed takeoff and landing instead of a froggy bounce.
+  const CLIMB_MS = 700, DESCENT_MS = 700; // wall-clock takeoff/landing target (clamped per flight)
+  const MIN_CLIMB_FRAC = 0.30;           // climb/descent each at LEAST this fraction of the flight
+  const MAX_CLIMB_FRAC = 0.45;           // …and at most this fraction
+  // Map flight progress (0..1) to a takeoff → cruise → landing altitude curve. The climb and
+  // descent each aim for a fixed wall-clock time (CLIMB_MS/DESCENT_MS) but are CLAMPED to
+  // [MIN_CLIMB_FRAC, MAX_CLIMB_FRAC] of the flight. The MIN floor is key: on a long (slow-plane)
+  // flight, 700ms is a tiny fraction, which used to cram the descent into the last ~9% — the
+  // plane stayed level then dived at the very end (helicopter). The floor makes the descent a
+  // gradual glide (~last 30%) regardless of flight length; the MAX keeps short fast flights smooth.
   function planeTopForProgress(p, totalMs) {
-    const climbFrac = Math.min(MAX_CLIMB_FRAC, CLIMB_MS / totalMs);
-    const descentStart = 1 - Math.min(MAX_CLIMB_FRAC, DESCENT_MS / totalMs);
+    const climbFrac = Math.max(MIN_CLIMB_FRAC, Math.min(MAX_CLIMB_FRAC, CLIMB_MS / totalMs));
+    const descentStart = 1 - Math.max(MIN_CLIMB_FRAC, Math.min(MAX_CLIMB_FRAC, DESCENT_MS / totalMs));
     if (p <= climbFrac) return GROUND_TOP + (CRUISE_TOP - GROUND_TOP) * (p / climbFrac);            // climb
-    if (p >= descentStart) return CRUISE_TOP + (GROUND_TOP - CRUISE_TOP) * ((p - descentStart) / (1 - descentStart)); // descend
+    if (p >= descentStart) {
+      // Descent: ease-OUT the altitude (drop fast early, flare gentle at touchdown) so the
+      // plane's vertical speed decelerates in step with the ground/airport — a plane-like
+      // glide slope that flattens onto the runway, instead of a helicopter sink-straight-down
+      // (which is what a LINEAR descent looked like against the decelerating ground).
+      const t = (p - descentStart) / (1 - descentStart);   // 0..1 through the descent
+      const te = t * (2 - t);                              // ease-out: fast early, slow at the end
+      return CRUISE_TOP + (GROUND_TOP - CRUISE_TOP) * te;                                          // descend
+    }
     return CRUISE_TOP;                                                                              // cruise
   }
 
@@ -712,10 +723,34 @@
   // so speed reads via the parallax; the airports just mark "departed here → arriving
   // there" across the flight: departure centered at 0%, gone by DEP_OUT; open sky;
   // arrival slides in from ARR_IN, centered at 100%. Each only moves one direction.
-  const DEP_OUT = 0.35;   // departure airport fully off-screen-left by this progress
-  const ARR_IN  = 0.65;   // arrival airport starts sliding in from off-screen-right here
-  function depRunwayOffset(prog) { return -OFFSCREEN * Math.min(1, prog / DEP_OUT); }
-  function arrRunwayOffset(prog) { return  OFFSCREEN * (1 - Math.max(0, (prog - ARR_IN) / (1 - ARR_IN))); }
+  const DEP_OUT = 0.35;   // departure airport fully off-screen-left by this much GROUND travel
+  const ARR_IN  = 0.45;   // arrival airport starts sliding in (progress). Earlier than the
+                          // descent start so the fixed off-screen→center slide is spread over
+                          // more ground travel — making the airport move ~1.4× SLOWER than the
+                          // foreground trees (correct mid-ground parallax) instead of faster.
+                          // Still leaves an open-sky cruise gap (departure gone ~28%, arrival
+                          // appears ~47%).
+  const GROUND_DECEL = 0.65;  // ground runs linearly until here, then eases out to a stop at landing
+  // Cumulative ground-distance fraction (0..1) over a flight. Linear through takeoff/cruise,
+  // then a constant-deceleration ease-out during the descent so the WHOLE ground (trees,
+  // clouds, airports) glides to a stop together exactly as the plane touches down (no airport
+  // freezing while the ground still moves, no landing hop). Total stays 1 (distance conserved).
+  function groundFrac(prog) {
+    const v0 = 1 / (GROUND_DECEL + (1 - GROUND_DECEL) / 2);   // base velocity so total = 1
+    if (prog <= GROUND_DECEL) return v0 * prog;
+    const t = (prog - GROUND_DECEL) / (1 - GROUND_DECEL);     // 0..1 within the descent
+    return v0 * GROUND_DECEL + v0 * (1 - GROUND_DECEL) * (t - t * t / 2);  // decelerate to stop
+  }
+  // Airports are positioned by GROUND fraction (not raw progress), so they ride the ground and
+  // decelerate with it. Departure slides off-left over the first DEP_OUT of ground travel;
+  // arrival slides in from off-screen-right starting at ARR_IN of ground travel, reaching
+  // dead-center (0) exactly at full ground travel (touchdown). gA/g1 anchor the arrival window.
+  function depRunwayOffset(prog) { return -OFFSCREEN * Math.min(1, groundFrac(prog) / DEP_OUT); }
+  function arrRunwayOffset(prog) {
+    const gA = groundFrac(ARR_IN), g1 = groundFrac(1);
+    const f = (groundFrac(prog) - gA) / (g1 - gA);
+    return OFFSCREEN * (1 - Math.min(1, Math.max(0, f)));
+  }
   // Progress-driven parallax: over one full flight the 1× reference travels one
   // screen-width; trees (foreground) and clouds (far) scroll at these ratios. The
   // ground distance ACCUMULATES across flights (wrapped to the SCENE_W tile period)
@@ -754,6 +789,7 @@
   let sceneFlightId = null; // which flight the scene last rendered (to detect a new takeoff)
   let groundDist = 0;     // accumulated 1×-reference scroll distance (px), wrapped per layer
   let lastProg = 0;       // previous frame's flight progress, to advance groundDist by the delta
+  let lastGroundFrac = 0;   // previous frame's groundFrac(prog), to advance groundDist by eased deltas
   let cloudDrift = 0;     // always-on ambient cloud offset (advances every tick, parked or flying)
 
   // The shell is rebuilt ONLY when the plane tier changes (a new sprite). Flight
@@ -809,16 +845,20 @@
       // Advance the accumulated ground scroll by this frame's progress delta (so the
       // parallax speeds up with fast planes and resumes across flights). On a NEW
       // flight, prog jumps to ~0 — treat the delta as 0 that frame to avoid a lurch.
-      const dProg = newFlight ? 0 : Math.max(0, prog - lastProg);
-      groundDist += dProg * GROUND_PER_FLIGHT;
+      // Advance the ground by the EASED fraction delta (decelerates on landing). On a NEW
+      // flight, groundFrac jumps to ~0 — treat the delta as 0 that frame to avoid a lurch.
+      const gFrac = groundFrac(prog);
+      const dFrac = newFlight ? 0 : Math.max(0, gFrac - lastGroundFrac);
+      groundDist += dFrac * GROUND_PER_FLIGHT;
       // Fold the flight's cloud-parallax contribution INTO cloudDrift (rather than adding
       // groundDist*PARALLAX_CLOUDS as a separate term only while flying). This keeps the
       // clouds on ONE continuous position (cloudDrift) in both the flying and parked
       // branches — so takeoff/landing don't cross a discontinuity (which previously
       // snapped on takeoff and animated a backward slide on landing).
-      cloudDrift += dProg * GROUND_PER_FLIGHT * PARALLAX_CLOUDS;
+      cloudDrift += dFrac * GROUND_PER_FLIGHT * PARALLAX_CLOUDS;
       scrollLayer($('.scroll-trees'), groundDist * PARALLAX_TREES, newFlight);
       scrollLayer($('.scroll-clouds'), cloudDrift, newFlight);
+      lastGroundFrac = gFrac;
       lastProg = prog;
       placeAirport(dep, depRunwayOffset(prog), newFlight);    // centered at 0%, slides off left by DEP_OUT
       placeAirport(arr, arrRunwayOffset(prog), newFlight);    // slides in from ARR_IN, centered at 100%
@@ -830,6 +870,7 @@
       arr.classList.add('hidden');          // arrival not needed while parked
       sceneFlightId = null;
       lastProg = 0;                         // reset progress tracker; groundDist persists (freeze)
+      lastGroundFrac = 0;   // reset eased-ground tracker; groundDist persists (freeze)
       scrollLayer($('.scroll-clouds'), cloudDrift, false);
     }
   }
@@ -851,24 +892,34 @@
   }
 
   // Position a parallax layer at an accumulated scroll distance, wrapped to the strip's
-  // SCENE_W tile period so it tiles infinitely (never runs out). The wrap lands on an
-  // IDENTICAL tile, so it's visually seamless — BUT the layer's `.12s` transition would
-  // animate that ~SCENE_W reset backward across the screen (a visible flyback). So we
-  // SNAP (no transition) whenever the wrap fires, i.e. when x jumps forward (less
-  // negative) vs the last applied position. A normal step always moves x more negative
-  // (leftward), so a forward jump > SCENE_W/2 can only be a wrap. `snap` (new flight)
-  // forces a snap regardless.
+  // SCENE_W tile period so it tiles infinitely (never runs out). The target x lives in
+  // (-SCENE_W, 0]. The strip repeats every SCENE_W, so adding/removing exactly SCENE_W to
+  // the rendered position is INVISIBLE (identical tile). When the accumulated distance
+  // crosses a tile boundary, the naive target jumps forward by ~SCENE_W − step — a VISIBLE
+  // ~SCENE_W backward shift if applied directly (the old bug, worse on short fast flights).
+  // Fix: on a wrap, first teleport the rendered position by exactly +SCENE_W with NO
+  // transition (invisible — same tile), THEN glide to the target. The only visible motion
+  // is the normal small leftward step. `snap` (new flight) forces an instant set.
   function scrollLayer(el, dist, snap) {
     if (!el) return;
-    const x = -(((dist % SCENE_W) + SCENE_W) % SCENE_W);   // wrap into (-SCENE_W, 0]
+    const x = -(((dist % SCENE_W) + SCENE_W) % SCENE_W);   // target, wrapped into (-SCENE_W, 0]
     const prevX = parseFloat(el.dataset.x);
-    const wrapped = !isNaN(prevX) && (x - prevX) > SCENE_W / 2;  // x jumped forward → seam crossed
+    const wrapped = !isNaN(prevX) && (x - prevX) > SCENE_W / 2;  // target jumped forward → seam crossed
     el.dataset.x = x;
-    if (snap || wrapped) {
+    if (snap) {
+      // Instant set (new flight): no transition, no glide.
       el.style.transition = 'none';
       el.style.transform = 'translateX(' + x.toFixed(1) + 'px)';
-      el.offsetWidth;            // force reflow so the next change re-enables transition
+      el.offsetWidth;            // reflow so the next change re-enables the transition
       el.style.transition = '';
+    } else if (wrapped) {
+      // Invisible +SCENE_W teleport (identical tile) with no transition, then glide to x so
+      // only the small step animates — no visible backward jump across the screen.
+      el.style.transition = 'none';
+      el.style.transform = 'translateX(' + (prevX + SCENE_W).toFixed(1) + 'px)';
+      el.offsetWidth;            // commit the invisible teleport
+      el.style.transition = '';
+      el.style.transform = 'translateX(' + x.toFixed(1) + 'px)';  // glide the normal step
     } else {
       el.style.transform = 'translateX(' + x.toFixed(1) + 'px)';
     }
