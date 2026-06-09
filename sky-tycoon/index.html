@@ -214,6 +214,12 @@
   .plane-info { flex:1; min-width:0; }
   .plane-name { font-weight:800; font-size:14px; }
   .plane-stats { font-size:11px; opacity:.8; margin-top:2px; }
+  /* compact per-stat upgrade dot bars in the shop plane rows */
+  .shop-bars { display:flex; flex-direction:column; gap:3px; margin-top:6px; }
+  .shop-bar { display:flex; align-items:center; gap:6px; }
+  .shop-bar-lbl { font-size:9px; font-weight:800; letter-spacing:1px; color:#9fb0c8; width:38px; flex-shrink:0; }
+  .shop-bar .statbar { flex:1; }
+  .shop-bar .statbar > i { height:6px; }   /* slightly shorter pips to fit the row */
   .buy-btn { flex-shrink:0; width:auto; padding:10px 16px; }
   .owned { flex-shrink:0; color:#7cff7c; font-weight:800; font-size:12px; }
   .switch-btn { flex-shrink:0; width:auto; padding:10px 16px; font-family:inherit;
@@ -1062,6 +1068,12 @@
     const rows = PLANES.map(p => {
       const isCurrent = p.id === state.planeId;
       const owned = !!state.planes[p.id];
+      const ups = state.planes[p.id] || { speedUps: 0, capUps: 0 };   // unowned → base (0/0)
+      const upgradeBars =
+        '<div class="shop-bars">' +
+          '<div class="shop-bar"><span class="shop-bar-lbl">SPD</span>' + statBar(ups.speedUps) + '</div>' +
+          '<div class="shop-bar"><span class="shop-bar-lbl">CARGO</span>' + statBar(ups.capUps) + '</div>' +
+        '</div>';
       let right;
       if (isCurrent) {
         right = '<span class="owned">FLYING</span>';
@@ -1078,7 +1090,8 @@
         '<div class="plane-row">' +
           '<div class="plane-thumb" data-plane-thumb="' + p.id + '"></div>' +
           '<div class="plane-info"><div class="plane-name">' + p.name + '</div>' +
-          '<div class="plane-stats">Cap ' + p.cap + ' · Spd ' + p.speed.toFixed(1) + '</div></div>' +
+          '<div class="plane-stats">Cap ' + p.cap + ' · Spd ' + p.speed.toFixed(1) + '</div>' +
+          upgradeBars + '</div>' +
           right +
         '</div>'
       );
