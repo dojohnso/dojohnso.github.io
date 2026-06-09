@@ -122,13 +122,11 @@
   /* gentle bob layered on top of the progress-driven top position */
   .plane.flying { animation: bob 1.4s ease-in-out infinite; }
   @keyframes bob { 0%,100%{margin-top:0} 50%{margin-top:-4px} }
-  .flight-label { position:absolute; bottom:34px; width:100%; text-align:center;
+  .flight-label { position:absolute; bottom:16px; width:100%; text-align:center;
     font-size:12px; font-weight:800; letter-spacing:1px; text-shadow:1px 1px 0 #003; }
-  .progress { position:absolute; bottom:14px; left:14px; right:14px; height:12px;
-    background:var(--ink); border:2px solid #fff; }
-  .progress > i { display:block; height:100%; background:var(--gold); }
-  /* flight HUD (label + progress) only shows while a flight is active */
-  #scene:not(.flying) .flight-label, #scene:not(.flying) .progress { display:none; }
+  /* flight label only shows while a flight is active (the queue card carries the
+     visual progress fill now, so the scene no longer has its own progress bar) */
+  #scene:not(.flying) .flight-label { display:none; }
   /* job board */
   .job-board { display:flex; flex-direction:column; gap:8px; }
   .job { display:flex; align-items:center; gap:10px;
@@ -472,11 +470,17 @@
     return true;
   }
 
+  // Actual flight duration (ms) for a job on the CURRENT plane: base time ÷ speed, floored
+  // at MIN_FLIGHT_MS so fast planes still get a smooth takeoff/cruise/landing.
+  function flightDurationMs(job) {
+    return Math.max(MIN_FLIGHT_MS, (job.flightTime / currentStats().speed) * 1000);
+  }
+
   function startJob(job) {
     if (state.activeFlight) return false;
     const cap = currentStats().capacity;
     if (!canTakeJob(job, cap)) return false;
-    const totalMs = (job.flightTime / currentStats().speed) * 1000;
+    const totalMs = flightDurationMs(job);
     state.activeFlight = {
       jobId: job.id, place: job.place,
       totalMs, startedAt: Date.now(), elapsedMs: 0, payout: job.payout,
@@ -551,11 +555,10 @@
   // null if no board job fits current capacity. effSeconds matches startJob's timing.
   function bestTakeableJob() {
     const cap = currentStats().capacity;
-    const speed = currentStats().speed;
     let best = null, bestRate = -1;
     for (const job of state.jobs) {
       if (job.cargo > cap) continue;                 // not takeable
-      const effSeconds = job.flightTime / speed;
+      const effSeconds = flightDurationMs(job) / 1000;
       const rate = job.payout / effSeconds;
       if (rate > bestRate) { bestRate = rate; best = job; }
     }
@@ -683,11 +686,19 @@
 
   // Scene altitude (plane `top` in px). Ground = parked on grass; cruise = high.
   const GROUND_TOP = 96, CRUISE_TOP = 26;
-  // Map flight progress (0..1) to a takeoff → cruise → landing altitude curve.
-  function planeTopForProgress(p) {
-    if (p <= 0.18) return GROUND_TOP + (CRUISE_TOP - GROUND_TOP) * (p / 0.18);      // climb
-    if (p >= 0.82) return CRUISE_TOP + (GROUND_TOP - CRUISE_TOP) * ((p - 0.82) / 0.18); // descend
-    return CRUISE_TOP;                                                              // cruise
+  const MIN_FLIGHT_MS = 2000;            // floor so fast flights aren't a sub-second bounce
+  const CLIMB_MS = 700, DESCENT_MS = 700; // fixed wall-clock takeoff/landing (clamped per flight)
+  const MAX_CLIMB_FRAC = 0.45;           // climb/descent each capped at this fraction of the flight
+  // Map flight progress (0..1) to a takeoff → cruise → landing altitude curve. The climb
+  // and descent each take a fixed wall-clock time (CLIMB_MS/DESCENT_MS), converted to a
+  // progress fraction of this flight and clamped to MAX_CLIMB_FRAC — so even a fast (short)
+  // flight gets a smooth, consistent-speed takeoff and landing instead of a froggy bounce.
+  function planeTopForProgress(p, totalMs) {
+    const climbFrac = Math.min(MAX_CLIMB_FRAC, CLIMB_MS / totalMs);
+    const descentStart = 1 - Math.min(MAX_CLIMB_FRAC, DESCENT_MS / totalMs);
+    if (p <= climbFrac) return GROUND_TOP + (CRUISE_TOP - GROUND_TOP) * (p / climbFrac);            // climb
+    if (p >= descentStart) return CRUISE_TOP + (GROUND_TOP - CRUISE_TOP) * ((p - descentStart) / (1 - descentStart)); // descend
+    return CRUISE_TOP;                                                                              // cruise
   }
 
   // Ground scroll speed, matched to the trees so the runway parallax is correct:
@@ -761,7 +772,7 @@
       '<div class="airport" id="airport-arr">' + airportHTML + '</div>' +
       '<div class="layer scroll-trees">' + treeStripHTML() + '</div>' +
       '<div class="plane" data-plane="' + tier + '"></div>' +
-      '<div class="flight-label"></div><div class="progress"><i></i></div>';
+      '<div class="flight-label"></div>';
     sceneTier = tier;
   }
 
@@ -789,7 +800,7 @@
     if (f) {
       const prog = Math.min(1, f.elapsedMs / f.totalMs);
       const pct = Math.round(prog * 100);
-      plane.style.top = planeTopForProgress(prog).toFixed(1) + 'px';
+      plane.style.top = planeTopForProgress(prog, f.totalMs).toFixed(1) + 'px';
       // On a NEW flight's first frame (including a queue auto-advance, where there's
       // no idle frame to snap on), the departure runway jumps from off-screen-left
       // back to center. Snap it that frame so the transition doesn't animate the
@@ -813,7 +824,6 @@
       placeAirport(arr, arrRunwayOffset(prog), newFlight);    // slides in from ARR_IN, centered at 100%
       sceneFlightId = f.jobId;
       $('.flight-label').textContent = 'Flying to ' + f.place + '… ' + pct + '%';
-      $('.progress > i').style.width = pct + '%';
     } else {
       plane.style.top = GROUND_TOP + 'px';
       placeAirport(dep, 0, true);           // parked: snap (no transition) to centered, no streak
@@ -896,7 +906,7 @@
         '<div class="' + cls + '" ' + (ok ? 'data-job="' + job.id + '"' : '') + '>' +
           '<div class="job-main">' +
             '<div class="job-who">' + job.customer + ' → ' + job.place + '</div>' +
-            '<div class="job-meta">📦 ' + job.cargo + '  ·  ' + job.flightTime + 's</div>' +
+            '<div class="job-meta">📦 ' + job.cargo + '  ·  ' + Math.round(flightDurationMs(job) / 1000) + 's</div>' +
           '</div>' +
           '<div class="job-pay">' + fmt(job.payout) +
             (isLockedRow ? '<span class="lock">Need more capacity</span>' : '') +
