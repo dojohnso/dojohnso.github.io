@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Sky Tycoon</title>
-<meta name="description" content="Fly jobs, earn money, and upgrade your plane from a single-prop to a jet!">
+<meta name="description" content="Fly jobs, earn money, and upgrade your plane from a single-prop to a Concorde!">
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#001a33">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -20,6 +20,7 @@
     --spr-twin: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAASCAYAAAApH5ymAAAAAXNSR0IArs4c6QAAAS1JREFUSIljYBgFo2AQA6mgsv/yyRP/D6QbmPBJ8us5M3DJajAMpCNxOlAqqOz/t8c3GLgllBi4ZDXIMnzdjgP/swsrKPIcCy6JZ+u6GBkYGBhETb2IsiA2t+6/kjw/AwMDA8O9hx8Zrt95wHDnzh1K3MbAwMDAwIhLQiqo7D+roDTZocfAwMDQasHOUH3iJ0F13x7fYPj9/ik8UEh2ILeEEtmOhAF1BVYGYzkBBgYGBgZDEQ4GBgYGhtJ1j+Hyr09vY0jQ/MPQWFKM4iacDsTmUFoBskIQH4A5Ghv4/f4pAwMDAwOyPC7LiQFkaWJgQGSK6bvuMTAwMDC4qwszXL/zgCHM246hLCeFUcwt+z8DAwPDq11TybaDKqC+p/d/bG4dPKdTo2gZBaNgMAEAX+Nj9tt3Iz4AAAAASUVORK5CYII=");
     --spr-turbo: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAASCAYAAAAg9DzcAAAAAXNSR0IArs4c6QAAAUpJREFUSInt1L9LAmEcx/H3hdCUFPnjXCTjBm1u6F/oX/Coqe1qiCKaippECol0CNyixuYggjAwHCJCkIYydDmRC5SWcHmaPM5LMeNSh3ttz8MXns/z5fs84HK5hkqyb2QuLkU0HEGWfdRqBi/VdzQ1/qNuVCbsG5oal3KFPEF/AFn2Udf1UeTqcHV9J/oWGY2muL1/6F84BMl0VmibuwLA06vouVgiV8h3jAhA0B9wJESxNcmT8QXAY7UBwMnSjHm2fRQzqYQEXWbYav/oWARCIaLhCLEblY9SmdmFeabCDUdCd/NZnQbgzKsBUK408XpaZuhfPaZ2cE2NS+2O/6dcIc/B9paZLZnOip31tf4dHkT7UlZ1Xe84+K+S6ayovL2SSSWknjM8iJWNPQGYP4oTIa0URcGRDi8ur4qYMmeuz08Px+a/drnG1TeBTHKWWNEWIwAAAABJRU5ErkJggg==");
     --spr-jet: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAASCAYAAAAdZl26AAAAAXNSR0IArs4c6QAAAUpJREFUSIntlb9LAlEcwD+GBC1xntcU2pB7g/4T/hE6uaVDFNKkk1CiNKSb0FKN1RLYIEQQheBQU+RZGDglUm1F8Rrk5C5P7LiLFO6zvR+89/28977fBy4utvD87Fhd2xRLyyEA0snE0PikYRrgUfVcAKiqOhUSplzUb4UmMsnMjBq4rtdRZJl8qWKQyBaKonxwKLKF4kTIjRQA6PZ6hnYkGhcP7Vf29quc1m6IpTL/LjH2fedLFREK9ZNakeVBv+L32do41/wiHJRoPL0QDkoANC47PB7nAKjsbg/m3jVbI/NxrIC+Kp3czwEgBQIA+CS/LQkrrLxf0W6plHe2DDH/usJoIulkwqPlhXYzf03trAowFDxYELCK/ulBvySbnaBdHBeIpTJi3vuBsrgAQLfz7HjQerxOLhaJxgXA2+cs5Y316fwAXVymjG8nunAOAGI5RgAAAABJRU5ErkJggg==");
+    --spr-concorde: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADQAAAASCAYAAAAUjf3AAAAAAXNSR0IArs4c6QAAASxJREFUSIntlL9Kw0Acxz/RF4iIo3bIBUrByYcQwTcQt27qoIMIgptQsnRJt0zudhIatz6Acw3kDhqKk4o6CC56DpJQoWliDZZIPtMd9+/zPe5+UFExfxzX012/r+ftMQsL0wYHalS6UBMDRUoCEISqlKEm4rieHqiR7vp9/W9DleFfGVkTHNfT21ubwNcTBKjbFg1rNXNt0ez4Q72xZnLUMFPPziW1d3iia5ZACIGUEiEEddsqzjQH5+E7p/YiQaiSs69614kTwPF+0/jRLY8HuxytFG+dwtPzI0vmctJurn8koYJQIaUkUpJOuzVboEhJapYo3jyDuPoCxB6ddssYd/v1P4g3msbr28u3/sPdPUAiUySFb7h7cJZaCW/lEICb3sWfF5SKiop8fAJxvoQrJjdRYAAAAABJRU5ErkJggg==");
   }
   html, body { height: 100%; }
   body {
@@ -118,6 +119,7 @@
   .plane[data-plane="twin"]  { width:152px; height:68px; background-image:var(--spr-twin); }
   .plane[data-plane="turbo"] { width:164px; height:68px; background-image:var(--spr-turbo); }
   .plane[data-plane="jet"]   { width:176px; height:68px; background-image:var(--spr-jet); }
+  .plane[data-plane="concorde"] { width:188px; height:68px; background-image:var(--spr-concorde); }
   /* gentle bob layered on top of the progress-driven top position */
   .plane.flying { animation: bob 1.4s ease-in-out infinite; }
   @keyframes bob { 0%,100%{margin-top:0} 50%{margin-top:-4px} }
@@ -211,6 +213,7 @@
   .plane-thumb[data-plane-thumb="twin"]  { background-image:var(--spr-twin); }
   .plane-thumb[data-plane-thumb="turbo"] { background-image:var(--spr-turbo); }
   .plane-thumb[data-plane-thumb="jet"]   { background-image:var(--spr-jet); }
+  .plane-thumb[data-plane-thumb="concorde"] { background-image:var(--spr-concorde); }
   .plane-info { flex:1; min-width:0; }
   .plane-name { font-weight:800; font-size:14px; }
   .plane-stats { font-size:11px; opacity:.8; margin-top:2px; }
@@ -283,16 +286,18 @@
 
   // ---- Config ----
   // Each plane upgrades up to MAX_UPGRADES times per stat. Steps are tuned so a
-  // fully-upgraded plane lands just below the next plane's base — maxing out a
-  // plane pushes you to buy the next one to reach bigger/faster jobs.
-  //   Capacity: prop 2→7,  twin 8→13,  turbo 14→24, jet 26→41
-  //   Speed:    prop 1.0→2.0, twin 2.2→3.2, turbo 3.4→4.9, jet 5.1→7.1
+  // fully-upgraded plane lands near the next plane's base — maxing out a plane
+  // pushes you toward the next one. Upgrade COST scales per plane (upgradeBase):
+  // cost = upgradeBase*(count+1), so big planes are a real investment to max.
+  //   Capacity: prop 2→7, twin 8→13, turbo 14→24, jet 26→41, concorde 40→60
+  //   Speed:    prop 1.0→2.0, twin 2.2→3.2, turbo 3.4→4.9, jet 5.1→7.1, concorde 7.5→10.0
   const MAX_UPGRADES = 5;   // upgrades allowed per stat, per plane
   const PLANES = [
-    { id: 'prop',  name: 'Single Prop', cap: 2,  speed: 1.0, price: 0,    capStep: 1, speedStep: 0.2 },
-    { id: 'twin',  name: 'Twin Prop',   cap: 8,  speed: 2.2, price: 400,  capStep: 1, speedStep: 0.2 },
-    { id: 'turbo', name: 'Turboprop',   cap: 14, speed: 3.4, price: 2000, capStep: 2, speedStep: 0.3 },
-    { id: 'jet',   name: 'Small Jet',   cap: 26, speed: 5.1, price: 8000, capStep: 3, speedStep: 0.4 },
+    { id: 'prop',     name: 'Single Prop', cap: 2,  speed: 1.0, price: 0,    capStep: 1, speedStep: 0.2, upgradeBase: 15 },
+    { id: 'twin',     name: 'Twin Prop',   cap: 8,  speed: 2.2, price: 400,  capStep: 1, speedStep: 0.2, upgradeBase: 20 },
+    { id: 'turbo',    name: 'Turboprop',   cap: 14, speed: 3.4, price: 2000, capStep: 2, speedStep: 0.3, upgradeBase: 80 },
+    { id: 'jet',      name: 'Small Jet',   cap: 26, speed: 5.1, price: 5000, capStep: 3, speedStep: 0.4, upgradeBase: 200 },
+    { id: 'concorde', name: 'Concorde',    cap: 40, speed: 7.5, price: 9000, capStep: 4, speedStep: 0.5, upgradeBase: 360 },
   ];
   const BOARD_SIZE = 5;     // jobs visible at once
   const QUEUE_BASE = 2;            // jobs you can queue with no upgrades
@@ -302,8 +307,9 @@
   const AUTOPILOT_PRICE = 1000;    // one-time autopilot unlock (priced in the Twin→Turbo gap)
 
   // ---- Pure helpers ----
-  // Cost of the next upgrade given how many of that stat you've already bought.
-  function upgradeCost(count) { return 15 * count + 15; }
+  // Cost of the next upgrade given how many of that stat you've bought AND the current
+  // plane's upgrade base. Bigger/pricier planes cost proportionally more to upgrade.
+  function upgradeCost(count, base) { return base * (count + 1); }
 
   function planeStats(planeId, speedUps, capUps) {
     const base = PLANES.find(p => p.id === planeId);
@@ -399,6 +405,7 @@
 
   // The upgrade record for the plane currently being flown.
   function curPlane() { return state.planes[state.planeId]; }
+  function curPlaneBase() { return PLANES.find(p => p.id === state.planeId).upgradeBase; }
 
   function queueSize() { return QUEUE_BASE + state.queueUps; }   // current max queue length
   function currentStats() { return planeStats(state.planeId, curPlane().speedUps, curPlane().capUps); }
@@ -482,7 +489,7 @@
   function buyEngineUpgrade() {
     const cp = curPlane();
     if (cp.speedUps >= MAX_UPGRADES) return false;   // this plane maxed on speed
-    const cost = upgradeCost(cp.speedUps);
+    const cost = upgradeCost(cp.speedUps, curPlaneBase());
     if (state.money < cost) return false;
     state.money -= cost;
     cp.speedUps += 1;
@@ -493,7 +500,7 @@
   function buyCargoUpgrade() {
     const cp = curPlane();
     if (cp.capUps >= MAX_UPGRADES) return false;     // this plane maxed on capacity
-    const cost = upgradeCost(cp.capUps);
+    const cost = upgradeCost(cp.capUps, curPlaneBase());
     if (state.money < cost) return false;
     state.money -= cost;
     cp.capUps += 1;
@@ -890,8 +897,9 @@
     const cp = curPlane();
     const capMaxed = cp.capUps >= MAX_UPGRADES;
     const speedMaxed = cp.speedUps >= MAX_UPGRADES;
-    const engineCost = upgradeCost(cp.speedUps);
-    const cargoCost = upgradeCost(cp.capUps);
+    const base = curPlaneBase();
+    const engineCost = upgradeCost(cp.speedUps, base);
+    const cargoCost = upgradeCost(cp.capUps, base);
     const canEngine = !speedMaxed && state.money >= engineCost;
     const canCargo = !capMaxed && state.money >= cargoCost;
     const engineBtn = speedMaxed
@@ -975,8 +983,9 @@
   // True if the player can afford ANY non-maxed upgrade (engine, cargo, or queue).
   function canAffordUpgrade() {
     const cp = curPlane();
-    if (cp.speedUps < MAX_UPGRADES && state.money >= upgradeCost(cp.speedUps)) return true;
-    if (cp.capUps < MAX_UPGRADES && state.money >= upgradeCost(cp.capUps)) return true;
+    const base = curPlaneBase();
+    if (cp.speedUps < MAX_UPGRADES && state.money >= upgradeCost(cp.speedUps, base)) return true;
+    if (cp.capUps < MAX_UPGRADES && state.money >= upgradeCost(cp.capUps, base)) return true;
     if (state.queueUps < MAX_QUEUE_UPGRADES && state.money >= queueUpgradeCost(state.queueUps)) return true;
     return false;
   }
