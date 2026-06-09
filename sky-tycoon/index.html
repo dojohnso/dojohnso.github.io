@@ -229,7 +229,16 @@
   body.show-title #title { display:flex; }
   body.show-title #app { display:none; }
   #title-clouds { position:absolute; inset:0; pointer-events:none; }
-  .t-cloud { position:absolute; background:#fff; border-radius:50px; opacity:.85; }
+  /* Clouds drift slowly across the title sky (the plane bobs in place, so the world moving
+     past sells the "flying" feel). The keyframe sweeps each cloud from just off the RIGHT
+     edge to just off the LEFT, then loops seamlessly (both ends are off-screen, so the
+     wrap is invisible). All clouds enter from the right on every cycle. To fill the sky at
+     load (instead of all clumping off-right), a couple of clouds get a negative
+     animation-delay that advances them into the sky for the first frame; from their next
+     cycle on they too sweep in from the right. Varied durations avoid lockstep. */
+  .t-cloud { position:absolute; left:0; background:#fff; border-radius:50px; opacity:.85;
+    animation:title-cloud-drift linear infinite; will-change:transform; }
+  @keyframes title-cloud-drift { from{transform:translateX(100vw)} to{transform:translateX(-200px)} }
   #title-plane { width:160px; height:80px; background:var(--spr-prop) center/contain no-repeat;
     image-rendering:pixelated; image-rendering:crisp-edges; animation:title-bob 2s ease-in-out infinite; }
   @keyframes title-bob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
@@ -265,9 +274,14 @@
   </div>
   <div id="title">
     <div id="title-clouds">
-      <div class="t-cloud" style="top:14%;left:8%;width:64px;height:20px"></div>
-      <div class="t-cloud" style="top:26%;left:60%;width:84px;height:24px"></div>
-      <div class="t-cloud" style="top:40%;left:30%;width:54px;height:18px"></div>
+      <!-- Pre-placed in the sky at load (negative delay advances them in), so the title
+           isn't empty on first paint. They sweep in from the right on every later cycle. -->
+      <div class="t-cloud" style="top:22%;width:84px;height:24px;animation-duration:34s;animation-delay:-19s"></div>
+      <div class="t-cloud" style="top:44%;width:72px;height:22px;animation-duration:32s;animation-delay:-12s"></div>
+      <!-- Start off the right edge (no delay) and drift in — no mid-sky pop-in. -->
+      <div class="t-cloud" style="top:12%;width:64px;height:20px;animation-duration:28s"></div>
+      <div class="t-cloud" style="top:33%;width:54px;height:18px;animation-duration:30s;animation-delay:-25s"></div>
+      <div class="t-cloud" style="top:52%;width:48px;height:16px;animation-duration:26s"></div>
     </div>
     <div id="title-plane"></div>
     <h1 id="title-name">✈ Sky&nbsp;Tycoon</h1>
@@ -698,6 +712,7 @@
   const GROUND_PER_FLIGHT = SCENE_W;   // 1× layer travels one screen-width per flight
   const PARALLAX_TREES = 2.2;
   const PARALLAX_CLOUDS = 0.35;
+  const CLOUD_DRIFT_PX_PER_TICK = 0.4;   // gentle always-on cloud float (~4px/sec at 100ms tick)
 
   // Build the repeating parallax strips once (each is 200% wide and scrolls -50%,
   // so the content must repeat across the first half to loop seamlessly).
@@ -728,6 +743,7 @@
   let sceneFlightId = null; // which flight the scene last rendered (to detect a new takeoff)
   let groundDist = 0;     // accumulated 1×-reference scroll distance (px), wrapped per layer
   let lastProg = 0;       // previous frame's flight progress, to advance groundDist by the delta
+  let cloudDrift = 0;     // always-on ambient cloud offset (advances every tick, parked or flying)
 
   // The shell is rebuilt ONLY when the plane tier changes (a new sprite). Flight
   // state is just toggled on the existing nodes, so the scrolling clouds/trees
@@ -784,8 +800,14 @@
       // flight, prog jumps to ~0 — treat the delta as 0 that frame to avoid a lurch.
       const dProg = newFlight ? 0 : Math.max(0, prog - lastProg);
       groundDist += dProg * GROUND_PER_FLIGHT;
+      // Fold the flight's cloud-parallax contribution INTO cloudDrift (rather than adding
+      // groundDist*PARALLAX_CLOUDS as a separate term only while flying). This keeps the
+      // clouds on ONE continuous position (cloudDrift) in both the flying and parked
+      // branches — so takeoff/landing don't cross a discontinuity (which previously
+      // snapped on takeoff and animated a backward slide on landing).
+      cloudDrift += dProg * GROUND_PER_FLIGHT * PARALLAX_CLOUDS;
       scrollLayer($('.scroll-trees'), groundDist * PARALLAX_TREES, newFlight);
-      scrollLayer($('.scroll-clouds'), groundDist * PARALLAX_CLOUDS, newFlight);
+      scrollLayer($('.scroll-clouds'), cloudDrift, newFlight);
       lastProg = prog;
       placeAirport(dep, depRunwayOffset(prog), newFlight);    // centered at 0%, slides off left by DEP_OUT
       placeAirport(arr, arrRunwayOffset(prog), newFlight);    // slides in from ARR_IN, centered at 100%
@@ -798,6 +820,7 @@
       arr.classList.add('hidden');          // arrival not needed while parked
       sceneFlightId = null;
       lastProg = 0;                         // reset progress tracker; groundDist persists (freeze)
+      scrollLayer($('.scroll-clouds'), cloudDrift, false);
     }
   }
 
@@ -1068,6 +1091,9 @@
     const autoAdded = autoFillQueue();
     if (autoAdded && screen === 'game' && currentView === 'fly') renderAll();
 
+    // Ambient cloud drift advances every tick (parked or flying) so the sky always floats.
+    if (screen === 'game') cloudDrift += CLOUD_DRIFT_PX_PER_TICK;
+
     const f = state.activeFlight;
     if (f) {
       // Drive progress from wall-clock so a mid-flight reload keeps its place.
@@ -1081,6 +1107,8 @@
         renderScene();
         if (currentView === 'fly') updateActiveJobProgress();
       }
+    } else if (screen === 'game') {
+      renderScene();   // parked: keep the ambient clouds drifting (scene is always visible up top)
     }
   }
 
