@@ -218,6 +218,13 @@
   .plane-info { flex:1; min-width:0; }
   .plane-name { font-weight:800; font-size:14px; }
   .plane-stats { font-size:11px; opacity:.8; margin-top:2px; }
+  /* RPG-style plane stat comparison bars (continuous fill = plane power vs the fleet;
+     distinct from the segmented blue/gold upgrade dots below). */
+  .cmp-bars { display:flex; flex-direction:column; gap:3px; margin-top:5px; }
+  .cmp-bar { display:flex; align-items:center; gap:6px; }
+  .cmp-lbl { font-size:9px; font-weight:800; letter-spacing:1px; color:#9fb0c8; width:38px; flex-shrink:0; }
+  .cmp-track { flex:1; height:7px; background:#10141f; border:1px solid #3a425c; border-radius:2px; overflow:hidden; }
+  .cmp-track > i { display:block; height:100%; background:linear-gradient(90deg, #ff9e3d, #ffb86b); }
   /* compact per-stat upgrade dot bars in the shop plane rows */
   .shop-bars { display:flex; flex-direction:column; gap:3px; margin-top:6px; }
   .shop-bar { display:flex; align-items:center; gap:6px; }
@@ -229,7 +236,6 @@
   .switch-btn { flex-shrink:0; width:auto; padding:10px 16px; font-family:inherit;
     font-weight:800; font-size:13px; color:#fff; background:#1d6fa5; border:none; cursor:pointer; }
   .switch-btn.disabled { background:#555c70; color:#9aa; cursor:default; }
-  .switch-hint { display:block; font-size:10px; color:#9fb0c8; margin-top:4px; text-align:right; opacity:.85; }
   /* title screen */
   #title { display:none; position:absolute; inset:0; z-index:20; overflow:hidden;
     flex-direction:column; align-items:center; justify-content:center; gap:18px;
@@ -1083,6 +1089,8 @@
 
   function renderShop() {
     const flying = !!state.activeFlight;
+    const maxCap = Math.max(...PLANES.map(p => p.cap));
+    const maxSpd = Math.max(...PLANES.map(p => p.speed));
     const rows = PLANES.map(p => {
       const isCurrent = p.id === state.planeId;
       const owned = !!state.planes[p.id];
@@ -1092,13 +1100,21 @@
           '<div class="shop-bar"><span class="shop-bar-lbl">SPD</span>' + statBar(ups.speedUps) + '</div>' +
           '<div class="shop-bar"><span class="shop-bar-lbl">CARGO</span>' + statBar(ups.capUps) + '</div>' +
         '</div>';
+      const cmpBars =
+        '<div class="cmp-bars">' +
+          '<div class="cmp-bar"><span class="cmp-lbl">CAP</span>' +
+            '<div class="cmp-track"><i style="width:' + Math.round(p.cap / maxCap * 100) + '%"></i></div></div>' +
+          '<div class="cmp-bar"><span class="cmp-lbl">SPD</span>' +
+            '<div class="cmp-track"><i style="width:' + Math.round(p.speed / maxSpd * 100) + '%"></i></div></div>' +
+        '</div>';
       let right;
       if (isCurrent) {
         right = '<span class="owned">FLYING</span>';
       } else if (owned) {
+        // While flying you can't switch — the button itself says "Land first" (disabled)
+        // instead of a side note, so the row spacing doesn't shift.
         right = '<button class="switch-btn' + (flying ? ' disabled' : '') +
-                '" data-switch="' + p.id + '">Switch</button>' +
-                (flying ? '<span class="switch-hint">Land to switch</span>' : '');
+                '" data-switch="' + p.id + '">' + (flying ? 'Land first' : 'Switch') + '</button>';
       } else {
         const affordable = state.money >= p.price;
         right = '<button class="buy-btn' + (affordable ? '' : ' disabled') +
@@ -1108,8 +1124,7 @@
         '<div class="plane-row">' +
           '<div class="plane-thumb" data-plane-thumb="' + p.id + '"></div>' +
           '<div class="plane-info"><div class="plane-name">' + p.name + '</div>' +
-          '<div class="plane-stats">Cap ' + p.cap + ' · Spd ' + p.speed.toFixed(1) + '</div>' +
-          upgradeBars + '</div>' +
+          cmpBars + upgradeBars + '</div>' +
           right +
         '</div>'
       );
