@@ -1,6 +1,6 @@
 // Bump CACHE_NAME on every release so the activate handler purges old caches
 // and returning players pick up the new version.
-const CACHE_NAME = 'sky-tycoon-v22';
+const CACHE_NAME = 'sky-tycoon-v23';
 // Relative paths: this app is served from /sky-tycoon/, not the site root.
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
