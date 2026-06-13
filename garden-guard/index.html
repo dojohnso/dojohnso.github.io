@@ -44,6 +44,73 @@
   const ctx = canvas.getContext('2d');
   const IW = 640, IH = 360; // internal resolution (landscape 16:9)
 
+  const TILE = 32;
+  const START_CASH = 180;
+  const START_HEARTS = 20;
+  const UNLOCK_WAVE = 10;          // clear this wave to unlock the next map
+  const WAVE_CLEAR_BONUS = 25;     // cash awarded when a wave is fully cleared
+
+  // Tower types. range/px, dmg, fireMs (cooldown), and per-tier stats.
+  // tiers[i] gives {cost, dmg, range, fireMs} for tier i (0 = base buy).
+  const TOWERS = {
+    can:    { name: 'Watering Can',   color: '#4aa3ff', proj: 'drop',
+              tiers: [ {cost:60,  dmg:6,  range:70, fireMs:600},
+                       {cost:50,  dmg:11, range:80, fireMs:540},
+                       {cost:90,  dmg:20, range:92, fireMs:480} ] },
+    zapper: { name: 'Bug Zapper',     color: '#ffe14a', proj: 'zap', aoe:34, slow:0.5, slowMs:900,
+              tiers: [ {cost:90,  dmg:4,  range:60, fireMs:1100},
+                       {cost:80,  dmg:7,  range:66, fireMs:1000},
+                       {cost:130, dmg:12, range:72, fireMs:900} ] },
+    sprink: { name: 'Sprinkler',      color: '#4ad6c0', proj: 'splash', aoe:22,
+              tiers: [ {cost:75,  dmg:3,  range:48, fireMs:280},
+                       {cost:70,  dmg:5,  range:52, fireMs:250},
+                       {cost:110, dmg:8,  range:58, fireMs:220} ] },
+    scare:  { name: 'Scarecrow Sling', color: '#c98a3a', proj: 'pebble',
+              tiers: [ {cost:120, dmg:22, range:140, fireMs:1400},
+                       {cost:110, dmg:38, range:155, fireMs:1300},
+                       {cost:170, dmg:64, range:170, fireMs:1200} ] },
+  };
+  const TOWER_ORDER = ['can','zapper','sprink','scare'];
+  const SELL_REFUND = 0.6; // fraction of total spent returned on sell
+
+  // Pest types. hp/speed scale with wave elsewhere. hearts = cost if it leaks.
+  const PESTS = {
+    ant:   { name:'Ant',         hp:14,  speed:36, bounty:5,  hearts:1, color:'#8a3b2b', size:10 },
+    beetle:{ name:'Beetle',      hp:48,  speed:22, bounty:12, hearts:2, color:'#2b3a8a', size:14 },
+    lizard:{ name:'Lizard',      hp:9,   speed:74, bounty:7,  hearts:1, color:'#3a9d4a', size:12 },
+    cat:   { name:'Caterpillar', hp:260, speed:18, bounty:60, hearts:5, color:'#b85ac0', size:20 },
+  };
+
+  // Maps as data. path = ordered waypoints (internal px). plots = buildable centers.
+  const MAPS = [
+    { id:'backyard', name:'Backyard Veggie Patch', difficulty:'Easy',
+      path: [ {x:-20,y:120}, {x:140,y:120}, {x:140,y:250}, {x:330,y:250},
+              {x:330,y:90}, {x:520,y:90}, {x:520,y:250}, {x:660,y:250} ],
+      plots: [ {x:90,y:185}, {x:200,y:185}, {x:200,y:310}, {x:280,y:185},
+               {x:390,y:150}, {x:470,y:150}, {x:470,y:310}, {x:580,y:160} ] },
+    // Maps 2 & 3 added in a later task.
+  ];
+
+  // ---- Persistent meta (unlocks + best wave) ----
+  const META_KEY = 'gardenGuardMeta_v1';
+
+  function freshMeta() {
+    return { unlocked: { backyard: true }, best: {} }; // best[mapId] = highest wave cleared
+  }
+  function loadMeta() {
+    try {
+      const raw = localStorage.getItem(META_KEY);
+      if (!raw) return freshMeta();
+      const m = JSON.parse(raw);
+      return { unlocked: m.unlocked || { backyard:true }, best: m.best || {} };
+    } catch (e) { return freshMeta(); }
+  }
+  function saveMeta() {
+    try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch (e) {}
+  }
+
+  let meta = loadMeta();
+
   // Scale the canvas element to the largest fit in the viewport,
   // preserving the 16:9 internal ratio. Drawing always happens in IW×IH space.
   function fitCanvas() {
