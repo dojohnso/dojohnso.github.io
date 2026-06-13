@@ -19,9 +19,9 @@ Mirrors the Sky Tycoon shipping pattern.
   `sw.js` + `icon-192.png` / `icon-512.png`.
 - Aseprite source sprites in `garden-guard/assets/sprites/`, exported PNGs in
   `garden-guard/public/`.
-- **Canvas-based rendering** at a fixed internal resolution, scaled up with
-  `imageRendering: pixelated`. (Pick a portrait-friendly internal res during planning,
-  e.g. ~360×640-ish, finalized in the plan.)
+- **Canvas-based rendering** at a fixed **landscape** internal resolution, scaled up with
+  `imageRendering: pixelated`. Landscape gives the winding path room to breathe. (Pick a
+  landscape internal res during planning, e.g. ~640×360-ish, finalized in the plan.)
 - **Game loop:** `requestAnimationFrame` with fixed-timestep update + separate render.
 - **Screen state machine:** Map Select → Playing → Game Over.
 - **Persistence:** unlocked maps + best-wave-per-map in `localStorage`.
@@ -43,7 +43,7 @@ One map run:
 5. Pests that reach the veggie patch cost hearts (by size). Hearts reach 0 → **Game Over**.
 6. Between waves: calm build phase to place/upgrade towers.
 7. Waves escalate **endlessly** — difficulty ramps via more pests, more HP, tougher mixes.
-8. **Best wave reached** is saved per map. Wave milestones unlock the next map.
+8. **Best wave reached** is saved per map. Clearing **wave 10** on a map unlocks the next map.
 
 **Tower interaction:**
 
@@ -89,8 +89,8 @@ Three hand-designed starter maps, each with its own winding path and buildable-p
 2. **Flower Bed Maze** — medium. Tighter path, fewer plots, more bends (rewards splash towers).
 3. **Greenhouse** — hard. Long snaking path, choke points.
 
-**Unlock flow:** Start with Map 1 unlocked. Reaching a wave milestone (e.g. clear wave 10)
-on a map unlocks the next. Once unlocked, any map is freely replayable.
+**Unlock flow:** Start with Map 1 unlocked. Clearing **wave 10** on a map unlocks the next.
+Once unlocked, any map is freely replayable.
 
 **Per-map persistence:** best wave reached saved per map, shown on the Map Select screen.
 Progression = unlocking maps + chasing your own best wave. **No cross-map stat carryover** —
