@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#3a7d3a">
+<title>Garden Guard</title>
+<link rel="manifest" href="./manifest.json">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  :root { --grass:#6ab04c; --dirt:#8a5a2b; --ink:#13301a; --leaf:#3a7d3a; --sky:#bfe3ff; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Courier New', monospace;
+    background: #13301a; color: #fff;
+    display: flex; justify-content: center; align-items: center;
+    overflow: hidden;
+  }
+  #stage {
+    position: relative;
+    width: 100vw; height: 100vh;
+    display: flex; justify-content: center; align-items: center;
+  }
+  canvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background: #6ab04c;
+  }
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    text-align: center; gap: 12px;
+  }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="game" width="640" height="360"></canvas>
+  <div id="mapSelect" class="overlay"><h1>Garden Guard</h1></div>
+</div>
+<script>
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const IW = 640, IH = 360; // internal resolution (landscape 16:9)
+
+  // Scale the canvas element to the largest fit in the viewport,
+  // preserving the 16:9 internal ratio. Drawing always happens in IW×IH space.
+  function fitCanvas() {
+    const scale = Math.min(window.innerWidth / IW, window.innerHeight / IH);
+    canvas.style.width = Math.floor(IW * scale) + 'px';
+    canvas.style.height = Math.floor(IH * scale) + 'px';
+  }
+  window.addEventListener('resize', fitCanvas);
+  fitCanvas();
+
+  // Temporary: fill so we can confirm the canvas renders.
+  ctx.fillStyle = '#6ab04c';
+  ctx.fillRect(0, 0, IW, IH);
+  ctx.fillStyle = '#13301a';
+  ctx.font = '16px monospace';
+  ctx.fillText('canvas ok', 12, 24);
+</script>
+</body>
+</html>

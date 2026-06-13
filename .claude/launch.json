@@ -24,6 +24,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["serve", "/usr/local/var/www/dojohnso.github.io/sky-tycoon", "-l", "3850"],
       "port": 3850
+    },
+    {
+      "name": "garden-guard",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "/usr/local/var/www/dojohnso.github.io/garden-guard", "-l", "3851"],
+      "port": 3851
     }
   ]
 }
