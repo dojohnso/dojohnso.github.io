@@ -197,6 +197,52 @@
     };
   }
 
+  // ---- Tower economy + targeting helpers ----
+
+  function towerBuyCost(type) { return TOWERS[type].tiers[0].cost; }
+  function towerTierStats(t) { return TOWERS[t.type].tiers[t.tier]; }
+  function upgradeCost(t) {
+    const tiers = TOWERS[t.type].tiers;
+    return t.tier + 1 < tiers.length ? tiers[t.tier + 1].cost : null; // null = maxed
+  }
+  function sellRefund(t) {
+    const tiers = TOWERS[t.type].tiers;
+    let spent = 0; for (let i = 0; i <= t.tier; i++) spent += tiers[i].cost;
+    return Math.floor(spent * SELL_REFUND);
+  }
+  // Target the pest furthest along the path (closest to goal) within range.
+  function pickTarget(tower) {
+    const s = towerTierStats(tower);
+    const r2 = s.range * s.range;
+    let best = null;
+    for (const p of game.pests) {
+      const pt = pointAt(game.path, p.dist);
+      if (dist2(pt.x, pt.y, tower.x, tower.y) <= r2) {
+        if (!best || p.dist > best.dist) best = p;
+      }
+    }
+    return best;
+  }
+
+  // ---- Placement + upgrade + sell ----
+
+  function placeTower(plot, type) {
+    if (plot.tower || game.cash < towerBuyCost(type)) return false;
+    game.cash -= towerBuyCost(type);
+    plot.tower = { type, tier: 0, x: plot.x, y: plot.y, cooldown: 0 };
+    return true;
+  }
+  function upgradeTower(t) {
+    const cost = upgradeCost(t);
+    if (cost == null || game.cash < cost) return false;
+    game.cash -= cost; t.tier += 1; return true;
+  }
+  function sellTower(plot) {
+    if (!plot.tower) return;
+    game.cash += sellRefund(plot.tower);
+    plot.tower = null;
+  }
+
   // ---- Fixed-timestep loop ----
 
   const STEP = 1000 / 60; // fixed 60Hz update
@@ -267,6 +313,63 @@
   }
   function gameOver() { screen = 'gameover'; if (typeof renderGameOver === 'function') renderGameOver(); }
 
+  // ---- Firing + projectiles + damage ----
+
+  function damagePest(p, dmg) {
+    p.hp -= dmg;
+    if (p.hp <= 0) { onPestKilled(p); }
+  }
+  function onPestKilled(p) {
+    game.cash += PESTS[p.type].bounty;
+    const i = game.pests.indexOf(p);
+    if (i >= 0) game.pests.splice(i, 1);
+  }
+  function fireTowers(dt) {
+    for (const plot of game.plots) {
+      const t = plot.tower; if (!t) continue;
+      t.cooldown -= dt; if (t.cooldown > 0) continue;
+      const target = pickTarget(t); if (!target) continue;
+      const s = towerTierStats(t);
+      const def = TOWERS[t.type];
+      const pt = pointAt(game.path, target.dist);
+      game.projectiles.push({
+        x: t.x, y: t.y, tx: pt.x, ty: pt.y, target,
+        dmg: s.dmg, kind: def.proj, aoe: def.aoe || 0,
+        slow: def.slow || 0, slowMs: def.slowMs || 0, speed: 320,
+      });
+      t.cooldown = s.fireMs;
+    }
+  }
+  function advanceProjectiles(dt) {
+    const next = [];
+    for (const pr of game.projectiles) {
+      if (pr.target && game.pests.includes(pr.target)) {
+        const pt = pointAt(game.path, pr.target.dist); pr.tx = pt.x; pr.ty = pt.y;
+      }
+      const dx = pr.tx - pr.x, dy = pr.ty - pr.y;
+      const d = Math.hypot(dx, dy);
+      const move = pr.speed * (dt / 1000);
+      if (d <= move) {
+        if (pr.aoe > 0) {
+          for (const p of game.pests.slice()) {
+            const ppt = pointAt(game.path, p.dist);
+            if (dist2(ppt.x, ppt.y, pr.tx, pr.ty) <= pr.aoe * pr.aoe) {
+              if (pr.slow) p.slowUntil = game.elapsed + pr.slowMs;
+              damagePest(p, pr.dmg);
+            }
+          }
+        } else if (pr.target && game.pests.includes(pr.target)) {
+          if (pr.slow) pr.target.slowUntil = game.elapsed + pr.slowMs;
+          damagePest(pr.target, pr.dmg);
+        }
+        // projectile consumed (not pushed to next)
+      } else {
+        pr.x += dx / d * move; pr.y += dy / d * move; next.push(pr);
+      }
+    }
+    game.projectiles = next;
+  }
+
   function update(dt) {
     game.elapsed += dt;
     while (game.spawnQueue.length && game.spawnQueue[0].atMs <= game.elapsed) {
@@ -281,7 +384,9 @@
     leaked.forEach(leakPest);
     if (screen !== 'playing') return;   // gameOver() fired — stop processing this frame
     game.pests = game.pests.filter(p => p.dist < game.path.total);
-    if (game.waveActive && !game.spawnQueue.length && !game.pests.length) onWaveCleared();
+    fireTowers(dt);
+    advanceProjectiles(dt);
+    if (game.waveActive && !game.spawnQueue.length && !game.pests.length && !game.projectiles.length) onWaveCleared();
   }
 
   function render() {
@@ -292,6 +397,21 @@
       const pt = pointAt(game.path, p.dist);
       ctx.fillStyle = def.color;
       ctx.beginPath(); ctx.arc(pt.x, pt.y, def.size/2, 0, Math.PI*2); ctx.fill();
+    }
+    for (const plot of game.plots) {
+      const t = plot.tower; if (!t) continue;
+      ctx.fillStyle = TOWERS[t.type].color;
+      const s = 18 + t.tier * 2;
+      ctx.fillRect(plot.x - s/2, plot.y - s/2, s, s);
+    }
+    for (const pr of game.projectiles) {
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(pr.x, pr.y, 3, 0, Math.PI*2); ctx.fill();
+    }
+    if (game.selectedPlot && game.selectedPlot.tower) {
+      const t = game.selectedPlot.tower, s = towerTierStats(t);
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.beginPath(); ctx.arc(t.x, t.y, s.range, 0, Math.PI*2); ctx.stroke();
     }
   }
 
