@@ -173,10 +173,69 @@
     });
   }
 
-  // TEMP (removed in a later task once the game loop drives rendering):
+  // ---- Runtime state ----
+
+  let game = null;
+  let screen = 'mapSelect'; // 'mapSelect' | 'playing' | 'gameover'
+
+  function newGame(mapId) {
+    const def = MAPS.find(m => m.id === mapId);
+    game = {
+      mapId, def,
+      path: buildPath(def.path),
+      plots: def.plots.map(p => ({ x:p.x, y:p.y, tower:null })),
+      cash: START_CASH,
+      hearts: START_HEARTS,
+      wave: 0,
+      waveActive: false,
+      pests: [],        // {type, hp, maxHp, dist, speed, slowUntil}
+      projectiles: [],  // {x,y, tx,ty, target, dmg, kind, aoe, slow, slowMs, speed}
+      spawnQueue: [],   // pending {type, atMs} for the active wave
+      elapsed: 0,       // ms since wave start, for spawn scheduling
+      selectedTowerType: null, // bottom-bar selection for placement
+      selectedPlot: null,      // plot whose popup is open
+    };
+  }
+
+  // ---- Fixed-timestep loop ----
+
+  const STEP = 1000 / 60; // fixed 60Hz update
+  let acc = 0, last = 0;
+  function frame(ts) {
+    if (!last) last = ts;
+    let delta = ts - last; last = ts;
+    if (delta > 250) delta = 250; // avoid spiral after tab-away
+    acc += delta;
+    while (acc >= STEP) { if (screen === 'playing') update(STEP); acc -= STEP; }
+    render();
+    requestAnimationFrame(frame);
+  }
+
+  function update(dt) {
+    for (const p of game.pests) {
+      const def = PESTS[p.type];
+      p.dist += def.speed * (dt / 1000);
+    }
+    game.pests = game.pests.filter(p => p.dist < game.path.total);
+  }
+
+  function render() {
+    if (screen !== 'playing' || !game) return;
+    drawTerrain(game.path, game.plots);
+    for (const p of game.pests) {
+      const def = PESTS[p.type];
+      const pt = pointAt(game.path, p.dist);
+      ctx.fillStyle = def.color;
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, def.size/2, 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  // TEMP boot (replaced by map-select flow in a later task):
   window.addEventListener('load', () => {
-    const p = buildPath(MAPS[0].path);
-    drawTerrain(p, MAPS[0].plots);
+    newGame('backyard');
+    screen = 'playing';
+    game.pests.push({ type:'ant', hp:14, maxHp:14, dist:0, speed:36 });
+    requestAnimationFrame(frame);
   });
 </script>
 </body>
