@@ -368,8 +368,9 @@
   function fireTowers(dt) {
     for (const plot of game.plots) {
       const t = plot.tower; if (!t) continue;
-      t.cooldown -= dt; if (t.cooldown > 0) continue;
-      const target = pickTarget(t); if (!target) continue;
+      if (t.cooldown > 0) t.cooldown -= dt;   // tick toward ready; never below 0 (no negative debt)
+      if (t.cooldown > 0) continue;            // still cooling down
+      const target = pickTarget(t); if (!target) continue; // ready, but no one to shoot — hold fire, stay at 0
       const s = towerTierStats(t);
       const def = TOWERS[t.type];
       const pt = pointAt(game.path, target.dist);
@@ -378,7 +379,7 @@
         dmg: s.dmg, kind: def.proj, aoe: def.aoe || 0,
         slow: def.slow || 0, slowMs: def.slowMs || 0, speed: 320,
       });
-      t.cooldown += s.fireMs;
+      t.cooldown = s.fireMs;                    // start a fresh cooldown from the shot
     }
   }
   function advanceProjectiles(dt) {
