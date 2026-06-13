@@ -454,7 +454,8 @@
     const barY = IH - 40, bw = 150, gap = 8, x0 = 8;
     const towers = TOWER_ORDER.map((id, i) => ({ id, x: x0 + i*(bw+gap), y: barY, w: bw, h: 34 }));
     const startWave = { x: IW - 138, y: 26, w: 128, h: 26 };
-    return { towers, startWave };
+    const menu = { x: IW - 70, y: 2, w: 66, h: 18 }; // in the top strip
+    return { towers, startWave, menu };
   }
 
   // Max tier-0 stat values across all towers, for normalizing the shop bars (0..1).
@@ -502,7 +503,15 @@
     ctx.fillText('♥ ' + game.hearts, 8, 11);
     ctx.fillText('$ ' + game.cash, 90, 11);
     ctx.fillText('Wave ' + game.wave, 180, 11);
-    if (game.def) ctx.fillText(game.def.name, 300, 11);
+    if (game.def) ctx.fillText(game.def.name, 290, 11);
+
+    // Menu button (return to map select)
+    const mb = hud.menu;
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fillRect(mb.x, mb.y, mb.w, mb.h);
+    ctx.fillStyle = '#fff'; ctx.font = '11px monospace';
+    ctx.fillText('☰ Menu', mb.x + 7, mb.y + mb.h/2);
+    ctx.font = '12px monospace';
 
     // bottom tower bar
     hud.towers.forEach(tb => {
@@ -578,7 +587,8 @@
     const p = canvasPoint(evt);
     const hud = hudHitRects();
 
-    // (a) HUD: Start Wave + tower bar selection
+    // (a) HUD: Menu (back to map select), Start Wave, tower bar selection
+    if (inRect(p, hud.menu)) { showMapSelect(); return; }
     if (!game.waveActive && inRect(p, hud.startWave)) { startWave(); return; }
     for (const tb of hud.towers) {
       if (inRect(p, tb)) {
