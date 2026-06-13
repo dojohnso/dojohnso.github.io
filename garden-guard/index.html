@@ -121,12 +121,63 @@
   window.addEventListener('resize', fitCanvas);
   fitCanvas();
 
-  // Temporary: fill so we can confirm the canvas renders.
-  ctx.fillStyle = '#6ab04c';
-  ctx.fillRect(0, 0, IW, IH);
-  ctx.fillStyle = '#13301a';
-  ctx.font = '16px monospace';
-  ctx.fillText('canvas ok', 12, 24);
+  // ---- Path geometry helpers ----
+
+  // Precompute cumulative segment lengths for a path so we can map dist→point.
+  function buildPath(points) {
+    const segs = [];
+    let total = 0;
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i], b = points[i+1];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      segs.push({ a, b, len, start: total });
+      total += len;
+    }
+    return { points, segs, total };
+  }
+  // Map a distance traveled to an {x,y} on the path. Clamps to the ends.
+  function pointAt(path, dist) {
+    if (dist <= 0) return { ...path.points[0] };
+    if (dist >= path.total) return { ...path.points[path.points.length - 1] };
+    for (const s of path.segs) {
+      if (dist <= s.start + s.len) {
+        const t = (dist - s.start) / s.len;
+        return { x: s.a.x + (s.b.x - s.a.x) * t, y: s.a.y + (s.b.y - s.a.y) * t };
+      }
+    }
+    return { ...path.points[path.points.length - 1] };
+  }
+  function dist2(ax, ay, bx, by) { const dx=ax-bx, dy=ay-by; return dx*dx+dy*dy; }
+
+  // ---- Terrain / path renderer ----
+
+  function drawTerrain(path, plots) {
+    ctx.fillStyle = '#6ab04c';
+    ctx.fillRect(0, 0, IW, IH);
+    // dirt path
+    ctx.strokeStyle = '#9a6a3a';
+    ctx.lineWidth = 26; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    path.points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+    ctx.stroke();
+    // veggie patch (goal) at path end
+    const goal = path.points[path.points.length - 1];
+    ctx.fillStyle = '#2e7d32';
+    ctx.fillRect(goal.x - 24, goal.y - 24, 36, 48);
+    // plots
+    ctx.lineWidth = 2;
+    plots.forEach(pl => {
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.beginPath(); ctx.arc(pl.x, pl.y, 12, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    });
+  }
+
+  // TEMP (removed in a later task once the game loop drives rendering):
+  window.addEventListener('load', () => {
+    const p = buildPath(MAPS[0].path);
+    drawTerrain(p, MAPS[0].plots);
+  });
 </script>
 </body>
 </html>
