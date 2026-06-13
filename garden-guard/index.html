@@ -429,6 +429,72 @@
     }
   }
 
+  // ---- Tap input ----
+
+  function canvasPoint(evt) {
+    const rect = canvas.getBoundingClientRect();
+    const cx = (evt.touches ? evt.touches[0].clientX : evt.clientX) - rect.left;
+    const cy = (evt.touches ? evt.touches[0].clientY : evt.clientY) - rect.top;
+    return { x: cx / rect.width * IW, y: cy / rect.height * IH };
+  }
+  function inRect(p, r) { return p.x>=r.x && p.x<=r.x+r.w && p.y>=r.y && p.y<=r.y+r.h; }
+
+  function popupHitRects(plot) {
+    const w = 120, h = 54, x = Math.min(IW - w - 4, plot.x + 14), y = Math.max(24, plot.y - h/2);
+    return { box:{x,y,w,h}, upgrade:{x:x+6,y:y+6,w:w-12,h:20}, sell:{x:x+6,y:y+28,w:w-12,h:20} };
+  }
+  function drawPopup() {
+    if (!game.selectedPlot || !game.selectedPlot.tower) return;
+    const t = game.selectedPlot.tower, r = popupHitRects(game.selectedPlot);
+    ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(r.box.x, r.box.y, r.box.w, r.box.h);
+    ctx.fillStyle = '#fff'; ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
+    const up = upgradeCost(t);
+    ctx.fillStyle = up==null ? '#555' : '#2e7d32'; ctx.fillRect(r.upgrade.x, r.upgrade.y, r.upgrade.w, r.upgrade.h);
+    ctx.fillStyle = '#fff'; ctx.fillText(up==null ? 'MAX' : ('Upgrade $'+up), r.upgrade.x+6, r.upgrade.y+10);
+    ctx.fillStyle = '#8a3b2b'; ctx.fillRect(r.sell.x, r.sell.y, r.sell.w, r.sell.h);
+    ctx.fillStyle = '#fff'; ctx.fillText('Sell $'+sellRefund(t), r.sell.x+6, r.sell.y+10);
+  }
+
+  function onTap(evt) {
+    evt.preventDefault();
+    if (screen !== 'playing') return;   // map select & game over use DOM overlays
+    const p = canvasPoint(evt);
+    const hud = hudHitRects();
+
+    // (a) HUD: Start Wave + tower bar selection
+    if (!game.waveActive && inRect(p, hud.startWave)) { startWave(); return; }
+    for (const tb of hud.towers) {
+      if (inRect(p, tb)) {
+        game.selectedTowerType = (game.selectedTowerType === tb.id) ? null : tb.id;
+        game.selectedPlot = null;
+        return;
+      }
+    }
+    // (b) open popup's Upgrade/Sell buttons
+    if (game.selectedPlot && game.selectedPlot.tower) {
+      const pop = popupHitRects(game.selectedPlot);
+      if (inRect(p, pop.upgrade)) { upgradeTower(game.selectedPlot.tower); return; }
+      if (inRect(p, pop.sell))    { sellTower(game.selectedPlot); game.selectedPlot = null; return; }
+    }
+    // (c) plots: place selected tower on empty plot, or open popup on occupied plot
+    let hitPlot = null, bestD = 22*22;
+    for (const plot of game.plots) {
+      const d = dist2(p.x, p.y, plot.x, plot.y);
+      if (d < bestD) { bestD = d; hitPlot = plot; }
+    }
+    if (hitPlot) {
+      if (hitPlot.tower) { game.selectedPlot = hitPlot; game.selectedTowerType = null; }
+      else if (game.selectedTowerType) {
+        if (placeTower(hitPlot, game.selectedTowerType)) game.selectedTowerType = null;
+      }
+      return;
+    }
+    // (d) empty space clears selection/popup
+    game.selectedPlot = null; game.selectedTowerType = null;
+  }
+  canvas.addEventListener('click', onTap);
+  canvas.addEventListener('touchstart', onTap, { passive: false });
+
   function render() {
     if (screen !== 'playing' || !game) return;
     drawTerrain(game.path, game.plots);
@@ -454,6 +520,7 @@
       ctx.beginPath(); ctx.arc(t.x, t.y, s.range, 0, Math.PI*2); ctx.stroke();
     }
     drawHUD();
+    drawPopup();
   }
 
   // TEMP boot (replaced by map-select flow in a later task):
