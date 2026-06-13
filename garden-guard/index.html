@@ -211,12 +211,74 @@
     requestAnimationFrame(frame);
   }
 
+  // ---- Wave composition + scaling ----
+
+  // HP grows ~12% per wave; speed nudges up slightly. Returns a scaled pest instance.
+  function scaledPest(type, n) {
+    const base = PESTS[type];
+    const hp = Math.round(base.hp * Math.pow(1.12, n - 1));
+    const speed = base.speed * (1 + Math.min(0.5, (n - 1) * 0.015));
+    return { type, hp, maxHp: hp, dist: 0, speed, slowUntil: 0 };
+  }
+  // Composition: count grows with n; boss every 5th wave.
+  function waveSpec(n) {
+    const list = [];
+    const ants = 4 + n;                       // baseline filler grows each wave
+    const lizards = Math.floor(n / 2);        // rushers appear from wave 2
+    const beetles = Math.floor(n / 3);        // tanks appear from wave 3
+    for (let i=0;i<ants;i++) list.push('ant');
+    for (let i=0;i<lizards;i++) list.push('lizard');
+    for (let i=0;i<beetles;i++) list.push('beetle');
+    // deterministic interleave so types are mixed (no RNG needed for MVP)
+    list.sort((a,b) => (a.charCodeAt(0)+ list.indexOf(a)) - (b.charCodeAt(0)+ list.indexOf(b)));
+    if (n % 5 === 0) list.push('cat');         // boss closes boss waves
+    return list;
+  }
+
+  // ---- Wave lifecycle + spawn scheduling ----
+
+  const SPAWN_GAP = 650; // ms between spawns within a wave
+
+  function startWave() {
+    if (game.waveActive) return;
+    game.wave += 1;
+    game.waveActive = true;
+    game.elapsed = 0;
+    const types = waveSpec(game.wave);
+    game.spawnQueue = types.map((type, i) => ({ type, atMs: i * SPAWN_GAP }));
+  }
+  function leakPest(p) {
+    game.hearts -= PESTS[p.type].hearts;
+    if (game.hearts <= 0) { game.hearts = 0; gameOver(); }
+  }
+  function onWaveCleared() {
+    game.waveActive = false;
+    game.cash += WAVE_CLEAR_BONUS;
+    const prevBest = meta.best[game.mapId] || 0;
+    if (game.wave > prevBest) { meta.best[game.mapId] = game.wave; saveMeta(); }
+    if (game.wave >= UNLOCK_WAVE) unlockNext(game.mapId);
+  }
+  function unlockNext(mapId) {
+    const idx = MAPS.findIndex(m => m.id === mapId);
+    const next = MAPS[idx + 1];
+    if (next && !meta.unlocked[next.id]) { meta.unlocked[next.id] = true; saveMeta(); }
+  }
+  function gameOver() { screen = 'gameover'; if (typeof renderGameOver === 'function') renderGameOver(); }
+
   function update(dt) {
-    for (const p of game.pests) {
-      const def = PESTS[p.type];
-      p.dist += def.speed * (dt / 1000);
+    game.elapsed += dt;
+    while (game.spawnQueue.length && game.spawnQueue[0].atMs <= game.elapsed) {
+      const s = game.spawnQueue.shift();
+      game.pests.push(scaledPest(s.type, game.wave));
     }
+    for (const p of game.pests) {
+      const slowed = p.slowUntil > game.elapsed ? 0.5 : 1;
+      p.dist += p.speed * slowed * (dt / 1000);
+    }
+    const leaked = game.pests.filter(p => p.dist >= game.path.total);
+    leaked.forEach(leakPest);
     game.pests = game.pests.filter(p => p.dist < game.path.total);
+    if (game.waveActive && !game.spawnQueue.length && !game.pests.length) onWaveCleared();
   }
 
   function render() {
@@ -234,7 +296,6 @@
   window.addEventListener('load', () => {
     newGame('backyard');
     screen = 'playing';
-    game.pests.push({ type:'ant', hp:14, maxHp:14, dist:0, speed:36 });
     requestAnimationFrame(frame);
   });
 </script>
