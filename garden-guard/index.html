@@ -38,6 +38,7 @@
 <div id="stage">
   <canvas id="game" width="640" height="360"></canvas>
   <div id="mapSelect" class="overlay"><h1>Garden Guard</h1></div>
+  <div id="gameOver" class="overlay hidden"></div>
 </div>
 <script>
   const canvas = document.getElementById('game');
@@ -526,11 +527,70 @@
     drawPopup();
   }
 
-  // TEMP boot (replaced by map-select flow in a later task):
+  function renderMapSelect() {
+    const el = document.getElementById('mapSelect');
+    el.innerHTML = '<h1 style="font-size:28px;margin-bottom:6px">Garden Guard</h1>' +
+      '<p style="opacity:.8;margin-bottom:14px">Defend the veggie patch!</p>' +
+      '<div id="mapCards" style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center"></div>';
+    const cards = el.querySelector('#mapCards');
+    MAPS.forEach(m => {
+      const unlocked = !!meta.unlocked[m.id];
+      const best = meta.best[m.id] || 0;
+      const card = document.createElement('button');
+      card.style.cssText = 'width:180px;padding:14px;border:2px solid #2e7d32;border-radius:8px;'
+        + 'background:' + (unlocked ? '#2e7d32' : '#333') + ';color:#fff;font-family:monospace;'
+        + 'cursor:pointer;opacity:' + (unlocked ? '1' : '0.6');
+      card.innerHTML = '<div style="font-size:15px;font-weight:bold">' + m.name + '</div>'
+        + '<div style="font-size:11px;opacity:.85;margin-top:4px">' + m.difficulty + '</div>'
+        + (unlocked
+            ? '<div style="font-size:11px;margin-top:6px">Best wave: ' + best + '</div>'
+            : '<div style="font-size:11px;margin-top:6px">🔒 Reach Wave ' + UNLOCK_WAVE + ' on ' + prevMapName(m.id) + '</div>');
+      if (unlocked) card.onclick = () => startMap(m.id);
+      cards.appendChild(card);
+    });
+    el.classList.remove('hidden');
+  }
+  function prevMapName(mapId) {
+    const i = MAPS.findIndex(m => m.id === mapId);
+    return i > 0 ? MAPS[i-1].name : '';
+  }
+  let loopStarted = false;
+  function startMap(id) {
+    newGame(id); screen = 'playing';
+    document.getElementById('mapSelect').classList.add('hidden');
+    hideGameOver();
+    if (!loopStarted) { loopStarted = true; requestAnimationFrame(frame); }
+  }
+  function showMapSelect() { screen = 'mapSelect'; renderMapSelect(); }
+
+  function renderGameOver() {
+    const el = document.getElementById('gameOver');
+    const best = meta.best[game.mapId] || 0;
+    el.innerHTML = '<h1 style="font-size:26px">🐛 Garden Overrun!</h1>'
+      + '<p style="margin:8px 0">You reached <b>Wave ' + game.wave + '</b></p>'
+      + '<p style="opacity:.8;font-size:12px">Best on this map: Wave ' + best + '</p>'
+      + '<div style="display:flex;gap:10px;margin-top:14px"></div>';
+    const row = el.querySelector('div');
+    const retry = document.createElement('button');
+    retry.textContent = '↻ Retry';
+    styleBtn(retry); retry.onclick = () => startMap(game.mapId);
+    const menu = document.createElement('button');
+    menu.textContent = '⌂ Maps';
+    styleBtn(menu); menu.onclick = () => { hideGameOver(); showMapSelect(); };
+    row.append(retry, menu);
+    el.classList.remove('hidden');
+  }
+  function styleBtn(b) {
+    b.style.cssText = 'padding:10px 16px;border:2px solid #2e7d32;border-radius:6px;'
+      + 'background:#2e7d32;color:#fff;font-family:monospace;font-size:14px;cursor:pointer';
+  }
+  function hideGameOver() { document.getElementById('gameOver').classList.add('hidden'); }
+
+  // Boot: start on map-select. Loop runs always; update() is gated on screen==='playing'.
   window.addEventListener('load', () => {
-    newGame('backyard');
-    screen = 'playing';
-    requestAnimationFrame(frame);
+    showMapSelect();
+    requestAnimationFrame(frame); // loop runs always; update() is gated on screen==='playing'
+    loopStarted = true;
   });
 </script>
 </body>
