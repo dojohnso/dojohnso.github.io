@@ -44,7 +44,6 @@
   const ctx = canvas.getContext('2d');
   const IW = 640, IH = 360; // internal resolution (landscape 16:9)
 
-  const TILE = 32;
   const START_CASH = 180;
   const START_HEARTS = 20;
   const UNLOCK_WAVE = 10;          // clear this wave to unlock the next map
@@ -266,7 +265,6 @@
     const speed = base.speed * (1 + Math.min(0.5, (n - 1) * 0.015));
     return { type, hp, maxHp: hp, dist: 0, speed, slowUntil: 0 };
   }
-  // Composition: count grows with n; boss every 5th wave.
   // Composition: counts grow with n; types are interleaved round-robin so the
   // stream is mixed (not grouped); boss appended every 5th wave.
   function waveSpec(n) {
@@ -337,7 +335,7 @@
         dmg: s.dmg, kind: def.proj, aoe: def.aoe || 0,
         slow: def.slow || 0, slowMs: def.slowMs || 0, speed: 320,
       });
-      t.cooldown = s.fireMs;
+      t.cooldown += s.fireMs;
     }
   }
   function advanceProjectiles(dt) {
