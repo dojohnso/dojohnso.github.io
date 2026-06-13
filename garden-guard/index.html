@@ -245,16 +245,27 @@
 
   // ---- Placement + upgrade + sell ----
 
+  let actx = null;
+  function blip(freq, ms, type) {
+    try {
+      if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = type || 'square'; o.frequency.value = freq;
+      g.gain.value = 0.05; o.connect(g); g.connect(actx.destination);
+      o.start(); o.stop(actx.currentTime + ms/1000);
+    } catch (e) {}
+  }
   function placeTower(plot, type) {
     if (plot.tower || game.cash < towerBuyCost(type)) return false;
     game.cash -= towerBuyCost(type);
     plot.tower = { type, tier: 0, x: plot.x, y: plot.y, cooldown: 0 };
+    blip(660, 60);
     return true;
   }
   function upgradeTower(t) {
     const cost = upgradeCost(t);
     if (cost == null || game.cash < cost) return false;
-    game.cash -= cost; t.tier += 1; return true;
+    game.cash -= cost; t.tier += 1; blip(880, 80); return true;
   }
   function sellTower(plot) {
     if (!plot.tower) return;
@@ -314,10 +325,12 @@
     game.spawnQueue = types.map((type, i) => ({ type, atMs: i * SPAWN_GAP }));
   }
   function leakPest(p) {
+    blip(150, 140, 'sine');
     game.hearts -= PESTS[p.type].hearts;
     if (game.hearts <= 0) { game.hearts = 0; gameOver(); }
   }
   function onWaveCleared() {
+    blip(990, 120);
     game.waveActive = false;
     game.cash += WAVE_CLEAR_BONUS;
     const prevBest = meta.best[game.mapId] || 0;
@@ -338,6 +351,7 @@
     if (p.hp <= 0) { onPestKilled(p); }
   }
   function onPestKilled(p) {
+    blip(440, 40, 'sawtooth');
     game.cash += PESTS[p.type].bounty;
     const i = game.pests.indexOf(p);
     if (i >= 0) game.pests.splice(i, 1);
