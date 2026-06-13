@@ -433,6 +433,7 @@
 
   function canvasPoint(evt) {
     const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return { x: -1, y: -1 };  // not laid out — treat as a miss
     const cx = (evt.touches ? evt.touches[0].clientX : evt.clientX) - rect.left;
     const cy = (evt.touches ? evt.touches[0].clientY : evt.clientY) - rect.top;
     return { x: cx / rect.width * IW, y: cy / rect.height * IH };
@@ -440,7 +441,9 @@
   function inRect(p, r) { return p.x>=r.x && p.x<=r.x+r.w && p.y>=r.y && p.y<=r.y+r.h; }
 
   function popupHitRects(plot) {
-    const w = 120, h = 54, x = Math.min(IW - w - 4, plot.x + 14), y = Math.max(24, plot.y - h/2);
+    const w = 120, h = 54, x = Math.min(IW - w - 4, plot.x + 14);
+    const barTop = IH - 40;                          // tower bar top (matches hudHitRects)
+    const y = Math.min(barTop - h - 4, Math.max(24, plot.y - h/2));
     return { box:{x,y,w,h}, upgrade:{x:x+6,y:y+6,w:w-12,h:20}, sell:{x:x+6,y:y+28,w:w-12,h:20} };
   }
   function drawPopup() {
