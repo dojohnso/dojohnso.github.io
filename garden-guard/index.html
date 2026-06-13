@@ -387,6 +387,48 @@
     if (game.waveActive && !game.spawnQueue.length && !game.pests.length && !game.projectiles.length) onWaveCleared();
   }
 
+  function hudHitRects() {
+    const barY = IH - 40, bw = 150, gap = 8, x0 = 8;
+    const towers = TOWER_ORDER.map((id, i) => ({ id, x: x0 + i*(bw+gap), y: barY, w: bw, h: 34 }));
+    const startWave = { x: IW - 110, y: 26, w: 100, h: 26 };
+    return { towers, startWave };
+  }
+
+  function drawHUD() {
+    const hud = hudHitRects();
+    // top strip
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillRect(0, 0, IW, 22);
+    ctx.fillStyle = '#fff'; ctx.font = '12px monospace'; ctx.textBaseline = 'middle';
+    ctx.fillText('♥ ' + game.hearts, 8, 11);
+    ctx.fillText('$ ' + game.cash, 90, 11);
+    ctx.fillText('Wave ' + game.wave, 180, 11);
+    if (game.def) ctx.fillText(game.def.name, 300, 11);
+
+    // bottom tower bar
+    hud.towers.forEach(tb => {
+      const id = tb.id;
+      const cost = towerBuyCost(id);
+      const affordable = game.cash >= cost;
+      const selected = game.selectedTowerType === id;
+      ctx.fillStyle = selected ? '#2e7d32' : (affordable ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.25)');
+      ctx.fillRect(tb.x, tb.y, tb.w, tb.h);
+      ctx.fillStyle = affordable ? TOWERS[id].color : '#777';
+      ctx.fillRect(tb.x + 4, tb.y + 7, 20, 20);
+      ctx.fillStyle = affordable ? '#fff' : '#999';
+      ctx.fillText(TOWERS[id].name, tb.x + 30, tb.y + 12);
+      ctx.fillText('$' + cost, tb.x + 30, tb.y + 25);
+    });
+
+    // Start Wave button when idle
+    if (!game.waveActive) {
+      const b = hud.startWave;
+      ctx.fillStyle = '#2e7d32';
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.fillStyle = '#fff'; ctx.fillText('▶ Start Wave', b.x + 6, b.y + 13);
+    }
+  }
+
   function render() {
     if (screen !== 'playing' || !game) return;
     drawTerrain(game.path, game.plots);
@@ -411,6 +453,7 @@
       ctx.strokeStyle = 'rgba(255,255,255,0.5)';
       ctx.beginPath(); ctx.arc(t.x, t.y, s.range, 0, Math.PI*2); ctx.stroke();
     }
+    drawHUD();
   }
 
   // TEMP boot (replaced by map-select flow in a later task):
