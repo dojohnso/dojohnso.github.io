@@ -561,8 +561,13 @@
     ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(r.box.x, r.box.y, r.box.w, r.box.h);
     ctx.fillStyle = '#fff'; ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
     const up = upgradeCost(t);
-    ctx.fillStyle = up==null ? '#555' : '#2e7d32'; ctx.fillRect(r.upgrade.x, r.upgrade.y, r.upgrade.w, r.upgrade.h);
-    ctx.fillStyle = '#fff'; ctx.fillText(up==null ? 'MAX' : ('Upgrade $'+up), r.upgrade.x+6, r.upgrade.y+10);
+    const maxed = up == null;
+    const canAfford = !maxed && game.cash >= up;     // live-updates each frame as cash changes
+    // maxed = grey; affordable = bright green; can't afford yet = faded green
+    ctx.fillStyle = maxed ? '#555' : (canAfford ? '#2e7d32' : '#26432a');
+    ctx.fillRect(r.upgrade.x, r.upgrade.y, r.upgrade.w, r.upgrade.h);
+    ctx.fillStyle = maxed ? '#fff' : (canAfford ? '#fff' : '#6f8a72'); // faded text when unaffordable
+    ctx.fillText(maxed ? 'MAX' : ('Upgrade $'+up), r.upgrade.x+6, r.upgrade.y+10);
     ctx.fillStyle = '#8a3b2b'; ctx.fillRect(r.sell.x, r.sell.y, r.sell.w, r.sell.h);
     ctx.fillStyle = '#fff'; ctx.fillText('Sell $'+sellRefund(t), r.sell.x+6, r.sell.y+10);
   }
