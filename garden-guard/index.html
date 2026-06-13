@@ -614,13 +614,25 @@
       const def = PESTS[p.type];
       const pt = pointAt(game.path, p.dist);
       const im = IMG[def.img];
+      let drawH = def.sprH || def.size;
       if (im && im.width) {
         const fw = im.width / 2;                       // 2-frame walk strip
         const frame = Math.floor(p.dist / 8) % 2;      // wiggle by distance traveled
+        drawH = im.height;
         ctx.drawImage(im, frame*fw, 0, fw, im.height, Math.round(pt.x - fw/2), Math.round(pt.y - im.height/2), fw, im.height);
       } else {
         ctx.fillStyle = def.color;
         ctx.beginPath(); ctx.arc(pt.x, pt.y, def.size/2, 0, Math.PI*2); ctx.fill();
+      }
+      // health bar — thin, above the pest, only once it has taken damage
+      if (p.hp < p.maxHp) {
+        const frac = Math.max(0, p.hp / p.maxHp);
+        const bw = Math.max(14, drawH);               // wider bar for bigger pests
+        const bx = Math.round(pt.x - bw / 2), by = Math.round(pt.y - drawH / 2 - 6);
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';            // backing + 1px outline
+        ctx.fillRect(bx - 1, by - 1, bw + 2, 5);
+        ctx.fillStyle = frac > 0.5 ? '#5ad15a' : frac > 0.25 ? '#ffe14a' : '#e8503a';
+        ctx.fillRect(bx, by, Math.round(bw * frac), 3);
       }
     }
     for (const plot of game.plots) {
