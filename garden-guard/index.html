@@ -62,9 +62,9 @@
                        {cost:80,  dmg:7,  range:66, fireMs:1000},
                        {cost:130, dmg:12, range:72, fireMs:900} ] },
     sprink: { name: 'Sprinkler',      color: '#4ad6c0', proj: 'splash', img:'tower-sprink', aoe:22,
-              tiers: [ {cost:75,  dmg:3,  range:48, fireMs:280},
-                       {cost:70,  dmg:5,  range:52, fireMs:250},
-                       {cost:110, dmg:8,  range:58, fireMs:220} ] },
+              tiers: [ {cost:75,  dmg:3,  range:58, fireMs:280},
+                       {cost:70,  dmg:5,  range:64, fireMs:250},
+                       {cost:110, dmg:8,  range:70, fireMs:220} ] },
     scare:  { name: 'Scarecrow Sling', color: '#c98a3a', proj: 'pebble', img:'tower-scare',
               tiers: [ {cost:120, dmg:22, range:140, fireMs:1400},
                        {cost:110, dmg:38, range:155, fireMs:1300},
@@ -88,7 +88,16 @@
               {x:330,y:90}, {x:520,y:90}, {x:520,y:250}, {x:660,y:250} ],
       plots: [ {x:90,y:185}, {x:200,y:185}, {x:200,y:310}, {x:280,y:185},
                {x:390,y:150}, {x:470,y:150}, {x:470,y:310}, {x:580,y:160} ] },
-    // Maps 2 & 3 added in a later task.
+    { id:'flowerbed', name:'Flower Bed Maze', difficulty:'Medium',
+      path: [ {x:-20,y:60}, {x:120,y:60}, {x:120,y:180}, {x:60,y:180}, {x:60,y:300},
+              {x:300,y:300}, {x:300,y:120}, {x:440,y:120}, {x:440,y:300}, {x:660,y:300} ],
+      plots: [ {x:175,y:95}, {x:175,y:215}, {x:115,y:240}, {x:180,y:255},
+               {x:240,y:255}, {x:370,y:210}, {x:500,y:250}, {x:600,y:255} ] },
+    { id:'greenhouse', name:'Greenhouse', difficulty:'Hard',
+      path: [ {x:-20,y:40}, {x:560,y:40}, {x:560,y:120}, {x:80,y:120}, {x:80,y:200},
+              {x:560,y:200}, {x:560,y:280}, {x:80,y:280}, {x:80,y:340}, {x:660,y:340} ],
+      plots: [ {x:300,y:80}, {x:300,y:160}, {x:200,y:160}, {x:420,y:160},
+               {x:300,y:240}, {x:200,y:240}, {x:420,y:240}, {x:480,y:305} ] },
   ];
 
   // ---- Sprite images ----
@@ -292,14 +301,14 @@
   // HP grows ~12% per wave; speed nudges up slightly. Returns a scaled pest instance.
   function scaledPest(type, n) {
     const base = PESTS[type];
-    const hp = Math.round(base.hp * Math.pow(1.12, n - 1));
-    const speed = base.speed * (1 + Math.min(0.5, (n - 1) * 0.015));
+    const hp = Math.round(base.hp * Math.pow(1.23, n - 1));
+    const speed = base.speed * (1 + Math.min(0.6, (n - 1) * 0.02));
     return { type, hp, maxHp: hp, dist: 0, speed, slowUntil: 0 };
   }
   // Composition: counts grow with n; types are interleaved round-robin so the
   // stream is mixed (not grouped); boss appended every 5th wave.
   function waveSpec(n) {
-    const counts = { ant: 4 + n, lizard: Math.floor(n / 2), beetle: Math.floor(n / 3) };
+    const counts = { ant: 4 + n, lizard: Math.floor(n * 0.7), beetle: Math.floor(n / 2) };
     const order = ['ant', 'lizard', 'beetle'];
     const list = [];
     let remaining = counts.ant + counts.lizard + counts.beetle;
