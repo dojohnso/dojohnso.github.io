@@ -623,7 +623,13 @@
   canvas.addEventListener('touchstart', onTap, { passive: false });
 
   function render() {
-    if (screen !== 'playing' || !game) return;
+    if (screen !== 'playing' || !game) {
+      // Not in play: clear the canvas so a stale game frame doesn't show
+      // through the (transparent) map-select / game-over overlays.
+      ctx.fillStyle = '#6ab04c';
+      ctx.fillRect(0, 0, IW, IH);
+      return;
+    }
     drawTerrain(game.path, game.plots);
     for (const p of game.pests) {
       const def = PESTS[p.type];
