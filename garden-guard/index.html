@@ -49,6 +49,8 @@
   const START_HEARTS = 20;
   const UNLOCK_WAVE = 10;          // clear this wave to unlock the next map
   const WAVE_CLEAR_BONUS = 25;     // cash awarded when a wave is fully cleared
+  const WAVE_COUNTDOWN_MS = 8000;  // auto-start the next wave after this idle countdown
+  const EARLY_START_BONUS_PER_SEC = 2; // bonus cash per whole second skipped by tapping Start Wave early
 
   // Tower types. range/px, dmg, fireMs (cooldown), and per-tier stats.
   // tiers[i] gives {cost, dmg, range, fireMs} for tier i (0 = base buy).
@@ -220,10 +222,13 @@
       projectiles: [],  // {x,y, tx,ty, target, dmg, kind, aoe, slow, slowMs, speed}
       spawnQueue: [],   // pending {type, atMs} for the active wave
       elapsed: 0,       // ms since wave start, for spawn scheduling
+      countdown: null,  // ms until the next wave auto-starts (null = no countdown running)
       selectedTowerType: null, // bottom-bar selection for placement
       selectedPlot: null,      // plot whose popup is open
     };
   }
+  // Arm the pre-wave countdown (on map start and after each wave clears).
+  function armCountdown() { if (game) game.countdown = WAVE_COUNTDOWN_MS; }
 
   // ---- Tower economy + targeting helpers ----
 
@@ -327,6 +332,12 @@
 
   function startWave() {
     if (game.waveActive) return;
+    // Early-start bonus: reward starting before the countdown runs out.
+    if (game.countdown != null && game.countdown > 0) {
+      const secsLeft = Math.ceil(game.countdown / 1000);
+      game.cash += secsLeft * EARLY_START_BONUS_PER_SEC;
+    }
+    game.countdown = null;
     game.wave += 1;
     game.waveActive = true;
     game.elapsed = 0;
@@ -345,6 +356,7 @@
     const prevBest = meta.best[game.mapId] || 0;
     if (game.wave > prevBest) { meta.best[game.mapId] = game.wave; saveMeta(); }
     if (game.wave >= UNLOCK_WAVE) unlockNext(game.mapId);
+    armCountdown(); // start the breather before the next wave
   }
   function unlockNext(mapId) {
     const idx = MAPS.findIndex(m => m.id === mapId);
@@ -413,6 +425,11 @@
   }
 
   function update(dt) {
+    // Pre-wave countdown: when no wave is active, tick down and auto-start at 0.
+    if (!game.waveActive && game.countdown != null) {
+      game.countdown -= dt;
+      if (game.countdown <= 0) { game.countdown = null; startWave(); return; }
+    }
     game.elapsed += dt;
     while (game.spawnQueue.length && game.spawnQueue[0].atMs <= game.elapsed) {
       const s = game.spawnQueue.shift();
@@ -436,8 +453,44 @@
   function hudHitRects() {
     const barY = IH - 40, bw = 150, gap = 8, x0 = 8;
     const towers = TOWER_ORDER.map((id, i) => ({ id, x: x0 + i*(bw+gap), y: barY, w: bw, h: 34 }));
-    const startWave = { x: IW - 110, y: 26, w: 100, h: 26 };
+    const startWave = { x: IW - 138, y: 26, w: 128, h: 26 };
     return { towers, startWave };
+  }
+
+  // Max tier-0 stat values across all towers, for normalizing the shop bars (0..1).
+  const STAT_MAX = {
+    dmg:   Math.max(...TOWER_ORDER.map(k => TOWERS[k].tiers[0].dmg)),
+    range: Math.max(...TOWER_ORDER.map(k => TOWERS[k].tiers[0].range)),
+    rate:  Math.max(...TOWER_ORDER.map(k => 1000 / TOWERS[k].tiers[0].fireMs)),
+  };
+  // Shop preview panel: shows the tapped (but not-yet-placed) tower's stats as bars.
+  function drawShopStats() {
+    const id = game.selectedTowerType;
+    if (!id) return;
+    const def = TOWERS[id], t0 = def.tiers[0];
+    const rate = 1000 / t0.fireMs;
+    const rows = [
+      { label: 'PWR',   frac: t0.dmg / STAT_MAX.dmg,     col: '#ff7a5c' },
+      { label: 'RANGE', frac: t0.range / STAT_MAX.range, col: '#7ec0ff' },
+      { label: 'SPEED', frac: rate / STAT_MAX.rate,      col: '#ffe14a' },
+    ];
+    const w = 168, h = 70, pad = 8;
+    const x = 8, y = (IH - 40) - h - 6; // sit just above the tower bar, left-aligned
+    ctx.fillStyle = 'rgba(0,0,0,0.82)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = def.color; ctx.lineWidth = 2; ctx.strokeRect(x+1, y+1, w-2, h-2);
+    ctx.fillStyle = '#fff'; ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
+    ctx.fillText(def.name, x + pad, y + 11);
+    const barX = x + pad + 42, barW = w - pad*2 - 42, rowH = 15;
+    rows.forEach((r, i) => {
+      const ry = y + 26 + i*rowH;
+      ctx.fillStyle = '#bbb'; ctx.font = '9px monospace';
+      ctx.fillText(r.label, x + pad, ry + 4);
+      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+      ctx.fillRect(barX, ry, barW, 7);
+      ctx.fillStyle = r.col;
+      ctx.fillRect(barX, ry, barW * Math.max(0.06, Math.min(1, r.frac)), 7);
+    });
   }
 
   function drawHUD() {
@@ -466,12 +519,22 @@
       ctx.fillText('$' + cost, tb.x + 30, tb.y + 25);
     });
 
-    // Start Wave button when idle
+    // Start Wave button when idle, with the auto-start countdown
     if (!game.waveActive) {
       const b = hud.startWave;
-      ctx.fillStyle = '#2e7d32';
+      const secs = game.countdown != null ? Math.ceil(game.countdown / 1000) : null;
+      // urgent (red-ish) in the last 3s so it draws the eye
+      ctx.fillStyle = (secs != null && secs <= 3) ? '#b5532e' : '#2e7d32';
       ctx.fillRect(b.x, b.y, b.w, b.h);
-      ctx.fillStyle = '#fff'; ctx.fillText('▶ Start Wave', b.x + 6, b.y + 13);
+      // countdown progress fill (drains left→right as time runs out)
+      if (secs != null) {
+        const frac = Math.max(0, Math.min(1, game.countdown / WAVE_COUNTDOWN_MS));
+        ctx.fillStyle = 'rgba(255,255,255,0.18)';
+        ctx.fillRect(b.x, b.y, b.w * frac, b.h);
+      }
+      ctx.fillStyle = '#fff';
+      const label = secs != null ? ('▶ Start  ' + secs + 's') : '▶ Start Wave';
+      ctx.fillText(label, b.x + 8, b.y + 13);
     }
   }
 
@@ -587,6 +650,7 @@
       ctx.beginPath(); ctx.arc(t.x, t.y, s.range, 0, Math.PI*2); ctx.stroke();
     }
     drawHUD();
+    drawShopStats();
     drawPopup();
   }
 
@@ -620,6 +684,7 @@
   let loopStarted = false;
   function startMap(id) {
     newGame(id); screen = 'playing';
+    armCountdown(); // breather before wave 1 starts
     document.getElementById('mapSelect').classList.add('hidden');
     hideGameOver();
     if (!loopStarted) { loopStarted = true; requestAnimationFrame(frame); }
