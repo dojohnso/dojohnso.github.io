@@ -53,19 +53,19 @@
   // Tower types. range/px, dmg, fireMs (cooldown), and per-tier stats.
   // tiers[i] gives {cost, dmg, range, fireMs} for tier i (0 = base buy).
   const TOWERS = {
-    can:    { name: 'Watering Can',   color: '#4aa3ff', proj: 'drop',
+    can:    { name: 'Watering Can',   color: '#4aa3ff', proj: 'drop', img:'tower-can',
               tiers: [ {cost:60,  dmg:6,  range:70, fireMs:600},
                        {cost:50,  dmg:11, range:80, fireMs:540},
                        {cost:90,  dmg:20, range:92, fireMs:480} ] },
-    zapper: { name: 'Bug Zapper',     color: '#ffe14a', proj: 'zap', aoe:34, slow:0.5, slowMs:900,
+    zapper: { name: 'Bug Zapper',     color: '#ffe14a', proj: 'zap', img:'tower-zapper', aoe:34, slow:0.5, slowMs:900,
               tiers: [ {cost:90,  dmg:4,  range:60, fireMs:1100},
                        {cost:80,  dmg:7,  range:66, fireMs:1000},
                        {cost:130, dmg:12, range:72, fireMs:900} ] },
-    sprink: { name: 'Sprinkler',      color: '#4ad6c0', proj: 'splash', aoe:22,
+    sprink: { name: 'Sprinkler',      color: '#4ad6c0', proj: 'splash', img:'tower-sprink', aoe:22,
               tiers: [ {cost:75,  dmg:3,  range:48, fireMs:280},
                        {cost:70,  dmg:5,  range:52, fireMs:250},
                        {cost:110, dmg:8,  range:58, fireMs:220} ] },
-    scare:  { name: 'Scarecrow Sling', color: '#c98a3a', proj: 'pebble',
+    scare:  { name: 'Scarecrow Sling', color: '#c98a3a', proj: 'pebble', img:'tower-scare',
               tiers: [ {cost:120, dmg:22, range:140, fireMs:1400},
                        {cost:110, dmg:38, range:155, fireMs:1300},
                        {cost:170, dmg:64, range:170, fireMs:1200} ] },
@@ -75,10 +75,10 @@
 
   // Pest types. hp/speed scale with wave elsewhere. hearts = cost if it leaks.
   const PESTS = {
-    ant:   { name:'Ant',         hp:14,  speed:36, bounty:5,  hearts:1, color:'#8a3b2b', size:10 },
-    beetle:{ name:'Beetle',      hp:48,  speed:22, bounty:12, hearts:2, color:'#2b3a8a', size:14 },
-    lizard:{ name:'Lizard',      hp:9,   speed:74, bounty:7,  hearts:1, color:'#3a9d4a', size:12 },
-    cat:   { name:'Caterpillar', hp:260, speed:18, bounty:60, hearts:5, color:'#b85ac0', size:20 },
+    ant:   { name:'Ant',         hp:14,  speed:36, bounty:5,  hearts:1, color:'#8a3b2b', size:10, img:'pest-ant',    sprH:12 },
+    beetle:{ name:'Beetle',      hp:48,  speed:22, bounty:12, hearts:2, color:'#2b3a8a', size:14, img:'pest-beetle', sprH:16 },
+    lizard:{ name:'Lizard',      hp:9,   speed:74, bounty:7,  hearts:1, color:'#3a9d4a', size:12, img:'pest-lizard', sprH:14 },
+    cat:   { name:'Caterpillar', hp:260, speed:18, bounty:60, hearts:5, color:'#b85ac0', size:20, img:'pest-cat',    sprH:24 },
   };
 
   // Maps as data. path = ordered waypoints (internal px). plots = buildable centers.
@@ -90,6 +90,20 @@
                {x:390,y:150}, {x:470,y:150}, {x:470,y:310}, {x:580,y:160} ] },
     // Maps 2 & 3 added in a later task.
   ];
+
+  // ---- Sprite images ----
+  const IMG = {};
+  function loadImages(done) {
+    const names = ['tower-can','tower-zapper','tower-sprink','tower-scare',
+                   'pest-ant','pest-beetle','pest-lizard','pest-cat','veggie'];
+    let left = names.length;
+    names.forEach(n => {
+      const im = new Image();
+      im.onload = im.onerror = () => { if (--left === 0) done(); };
+      im.src = './public/' + n + '.png';
+      IMG[n] = im;
+    });
+  }
 
   // ---- Persistent meta (unlocks + best wave) ----
   const META_KEY = 'gardenGuardMeta_v1';
@@ -162,8 +176,13 @@
     ctx.stroke();
     // veggie patch (goal) at path end
     const goal = path.points[path.points.length - 1];
-    ctx.fillStyle = '#2e7d32';
-    ctx.fillRect(goal.x - 24, goal.y - 24, 36, 48);
+    const veg = IMG['veggie'];
+    if (veg && veg.width) {
+      ctx.drawImage(veg, Math.round(goal.x - veg.width/2), Math.round(goal.y - veg.height + 12));
+    } else {
+      ctx.fillStyle = '#2e7d32';
+      ctx.fillRect(goal.x - 24, goal.y - 24, 36, 48);
+    }
     // plots
     ctx.lineWidth = 2;
     plots.forEach(pl => {
@@ -505,14 +524,32 @@
     for (const p of game.pests) {
       const def = PESTS[p.type];
       const pt = pointAt(game.path, p.dist);
-      ctx.fillStyle = def.color;
-      ctx.beginPath(); ctx.arc(pt.x, pt.y, def.size/2, 0, Math.PI*2); ctx.fill();
+      const im = IMG[def.img];
+      if (im && im.width) {
+        const fw = im.width / 2;                       // 2-frame walk strip
+        const frame = Math.floor(p.dist / 8) % 2;      // wiggle by distance traveled
+        ctx.drawImage(im, frame*fw, 0, fw, im.height, Math.round(pt.x - fw/2), Math.round(pt.y - im.height/2), fw, im.height);
+      } else {
+        ctx.fillStyle = def.color;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, def.size/2, 0, Math.PI*2); ctx.fill();
+      }
     }
     for (const plot of game.plots) {
       const t = plot.tower; if (!t) continue;
-      ctx.fillStyle = TOWERS[t.type].color;
-      const s = 18 + t.tier * 2;
-      ctx.fillRect(plot.x - s/2, plot.y - s/2, s, s);
+      const im = IMG[TOWERS[t.type].img];
+      if (im && im.width) {
+        ctx.drawImage(im, Math.round(plot.x - im.width/2), Math.round(plot.y - im.height/2 - 2));
+        if (t.tier > 0) {                              // tier pips below the tower
+          for (let i = 0; i < t.tier; i++) {
+            ctx.fillStyle = '#ffe14a';
+            ctx.fillRect(plot.x - 6 + i*6, plot.y + 11, 4, 4);
+          }
+        }
+      } else {
+        ctx.fillStyle = TOWERS[t.type].color;
+        const s = 18 + t.tier * 2;
+        ctx.fillRect(plot.x - s/2, plot.y - s/2, s, s);
+      }
     }
     for (const pr of game.projectiles) {
       ctx.fillStyle = '#fff';
@@ -586,11 +623,13 @@
   }
   function hideGameOver() { document.getElementById('gameOver').classList.add('hidden'); }
 
-  // Boot: start on map-select. Loop runs always; update() is gated on screen==='playing'.
+  // Boot: preload sprites, then start on map-select. Loop runs always; update() is gated on screen==='playing'.
   window.addEventListener('load', () => {
-    showMapSelect();
-    requestAnimationFrame(frame); // loop runs always; update() is gated on screen==='playing'
-    loopStarted = true;
+    loadImages(() => {
+      showMapSelect();
+      requestAnimationFrame(frame); // loop runs always; update() is gated on screen==='playing'
+      loopStarted = true;
+    });
   });
 </script>
 </body>
