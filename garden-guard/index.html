@@ -221,17 +221,19 @@
     return { type, hp, maxHp: hp, dist: 0, speed, slowUntil: 0 };
   }
   // Composition: count grows with n; boss every 5th wave.
+  // Composition: counts grow with n; types are interleaved round-robin so the
+  // stream is mixed (not grouped); boss appended every 5th wave.
   function waveSpec(n) {
+    const counts = { ant: 4 + n, lizard: Math.floor(n / 2), beetle: Math.floor(n / 3) };
+    const order = ['ant', 'lizard', 'beetle'];
     const list = [];
-    const ants = 4 + n;                       // baseline filler grows each wave
-    const lizards = Math.floor(n / 2);        // rushers appear from wave 2
-    const beetles = Math.floor(n / 3);        // tanks appear from wave 3
-    for (let i=0;i<ants;i++) list.push('ant');
-    for (let i=0;i<lizards;i++) list.push('lizard');
-    for (let i=0;i<beetles;i++) list.push('beetle');
-    // deterministic interleave so types are mixed (no RNG needed for MVP)
-    list.sort((a,b) => (a.charCodeAt(0)+ list.indexOf(a)) - (b.charCodeAt(0)+ list.indexOf(b)));
-    if (n % 5 === 0) list.push('cat');         // boss closes boss waves
+    let remaining = counts.ant + counts.lizard + counts.beetle;
+    while (remaining > 0) {
+      for (const t of order) {
+        if (counts[t] > 0) { list.push(t); counts[t]--; remaining--; }
+      }
+    }
+    if (n % 5 === 0) list.push('cat');
     return list;
   }
 
@@ -277,6 +279,7 @@
     }
     const leaked = game.pests.filter(p => p.dist >= game.path.total);
     leaked.forEach(leakPest);
+    if (screen !== 'playing') return;   // gameOver() fired — stop processing this frame
     game.pests = game.pests.filter(p => p.dist < game.path.total);
     if (game.waveActive && !game.spawnQueue.length && !game.pests.length) onWaveCleared();
   }
