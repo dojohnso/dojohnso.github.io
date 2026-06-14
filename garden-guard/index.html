@@ -148,13 +148,15 @@
   // preserving the 16:9 internal ratio. Drawing always happens in IW×IH space.
   const stage = document.getElementById('stage');
   function fitCanvas() {
-    // Measure the stage's content box — it already excludes the safe-area padding,
-    // so the canvas is sized to fit the *usable* area (clear of notch/status/address bar).
-    // Fall back to viewport reports if the stage hasn't laid out yet.
-    const de = document.documentElement;
+    // Use the visual viewport (true visible area) as the source of truth — on iOS
+    // 100vh/stage.clientHeight over-reports (includes area behind the browser UI),
+    // which made the canvas taller than the screen and clipped/off-centered it.
     const vv = window.visualViewport;
-    const vw = stage.clientWidth  || Math.max(window.innerWidth || 0, de.clientWidth || 0, vv ? vv.width  : 0);
-    const vh = stage.clientHeight || Math.max(window.innerHeight || 0, de.clientHeight || 0, vv ? vv.height : 0);
+    const vw = (vv && vv.width)  || window.innerWidth  || document.documentElement.clientWidth;
+    const vh = (vv && vv.height) || window.innerHeight || document.documentElement.clientHeight;
+    // Keep the #stage sized to the real visible viewport so fl* centering is correct.
+    stage.style.width = vw + 'px';
+    stage.style.height = vh + 'px';
     const scale = Math.min(vw / IW, vh / IH);
     canvas.style.width = Math.floor(IW * scale) + 'px';
     canvas.style.height = Math.floor(IH * scale) + 'px';
