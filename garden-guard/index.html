@@ -25,8 +25,11 @@
   #stage {
     position: relative;
     width: 100vw; height: 100vh;
-    /* Keep the playfield out from under the notch / status bar / address bar */
-    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    /* Only pad top/bottom for the status bar — the canvas is centered & letterboxed,
+       so the side bars already absorb the left/right notch insets. Padding the sides
+       (which are asymmetric in landscape) would shove the playfield off-center. */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
     display: flex; justify-content: center; align-items: center;
   }
   canvas {
@@ -96,8 +99,8 @@
     { id:'backyard', name:'Backyard Veggie Patch', difficulty:'Easy',
       path: [ {x:-20,y:120}, {x:140,y:120}, {x:140,y:250}, {x:330,y:250},
               {x:330,y:90}, {x:520,y:90}, {x:520,y:250}, {x:660,y:250} ],
-      plots: [ {x:90,y:185}, {x:200,y:185}, {x:200,y:310}, {x:280,y:185},
-               {x:390,y:150}, {x:470,y:150}, {x:470,y:310}, {x:580,y:160} ] },
+      plots: [ {x:90,y:185}, {x:200,y:185}, {x:200,y:300}, {x:280,y:185},
+               {x:390,y:150}, {x:470,y:150}, {x:470,y:300}, {x:580,y:160} ] },
     { id:'flowerbed', name:'Flower Bed Maze', difficulty:'Medium',
       path: [ {x:-20,y:60}, {x:120,y:60}, {x:120,y:180}, {x:60,y:180}, {x:60,y:300},
               {x:300,y:300}, {x:300,y:120}, {x:440,y:120}, {x:440,y:300}, {x:660,y:300} ],
@@ -107,7 +110,7 @@
       path: [ {x:-20,y:40}, {x:560,y:40}, {x:560,y:120}, {x:80,y:120}, {x:80,y:200},
               {x:560,y:200}, {x:560,y:280}, {x:80,y:280}, {x:80,y:340}, {x:660,y:340} ],
       plots: [ {x:300,y:80}, {x:300,y:160}, {x:200,y:160}, {x:420,y:160},
-               {x:300,y:240}, {x:200,y:240}, {x:420,y:240}, {x:620,y:305} ] },
+               {x:300,y:240}, {x:200,y:240}, {x:420,y:240}, {x:620,y:298} ] },
   ];
 
   // ---- Sprite images ----
