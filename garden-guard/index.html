@@ -586,26 +586,65 @@
   function inRect(p, r) { return p.x>=r.x && p.x<=r.x+r.w && p.y>=r.y && p.y<=r.y+r.h; }
 
   function popupHitRects(plot) {
-    const w = 120, h = 54, x = Math.min(IW - w - 4, plot.x + 14);
+    const w = 140, h = 96;
+    // Prefer placing to the right of the tower; flip left if it'd run off the edge.
+    let x = plot.x + 16;
+    if (x + w > IW - 4) x = plot.x - 16 - w;
+    x = Math.max(4, Math.min(IW - w - 4, x));
     const barTop = IH - 40;                          // tower bar top (matches hudHitRects)
     const y = Math.min(barTop - h - 4, Math.max(24, plot.y - h/2));
-    return { box:{x,y,w,h}, upgrade:{x:x+6,y:y+6,w:w-12,h:20}, sell:{x:x+6,y:y+28,w:w-12,h:20} };
+    const bw = (w - 18) / 2;                          // two side-by-side buttons
+    return {
+      box:    { x, y, w, h },
+      upgrade:{ x: x+6,      y: y+h-26, w: bw, h: 20 },
+      sell:   { x: x+12+bw,  y: y+h-26, w: bw, h: 20 },
+    };
   }
   function drawPopup() {
     if (!game.selectedPlot || !game.selectedPlot.tower) return;
-    const t = game.selectedPlot.tower, r = popupHitRects(game.selectedPlot);
-    ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(r.box.x, r.box.y, r.box.w, r.box.h);
+    const t = game.selectedPlot.tower, r = popupHitRects(game.selectedPlot), b = r.box;
+    const def = TOWERS[t.type], s = towerTierStats(t);
+    const rate = 1000 / s.fireMs;
+
+    // panel
+    ctx.fillStyle = 'rgba(0,0,0,0.82)'; ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.strokeStyle = def.color; ctx.lineWidth = 2; ctx.strokeRect(b.x+1, b.y+1, b.w-2, b.h-2);
+
+    // title: name + current tier
     ctx.fillStyle = '#fff'; ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
+    ctx.fillText(def.name, b.x + 8, b.y + 11);
+    ctx.fillStyle = '#ffe14a'; ctx.font = '9px monospace';
+    ctx.fillText('Lv ' + (t.tier + 1), b.x + b.w - 30, b.y + 11);
+
+    // current-tier stat bars (PWR / RANGE / SPEED), normalized across all towers
+    const rows = [
+      { label:'PWR',   frac: s.dmg / STAT_MAX.dmg,     col:'#ff7a5c' },
+      { label:'RANGE', frac: s.range / STAT_MAX.range, col:'#7ec0ff' },
+      { label:'SPEED', frac: rate / STAT_MAX.rate,     col:'#ffe14a' },
+    ];
+    const barX = b.x + 48, barW = b.w - 8 - 48, rowH = 13;
+    ctx.font = '9px monospace';
+    rows.forEach((row, i) => {
+      const ry = b.y + 24 + i*rowH;
+      ctx.fillStyle = '#bbb'; ctx.fillText(row.label, b.x + 8, ry + 4);
+      ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.fillRect(barX, ry, barW, 6);
+      ctx.fillStyle = row.col; ctx.fillRect(barX, ry, barW * Math.max(0.06, Math.min(1, row.frac)), 6);
+    });
+
+    // ---- Upgrade button (green, ▲ + cost) ----
     const up = upgradeCost(t);
     const maxed = up == null;
     const canAfford = !maxed && game.cash >= up;     // live-updates each frame as cash changes
-    // maxed = grey; affordable = bright green; can't afford yet = faded green
     ctx.fillStyle = maxed ? '#555' : (canAfford ? '#2e7d32' : '#26432a');
     ctx.fillRect(r.upgrade.x, r.upgrade.y, r.upgrade.w, r.upgrade.h);
-    ctx.fillStyle = maxed ? '#fff' : (canAfford ? '#fff' : '#6f8a72'); // faded text when unaffordable
-    ctx.fillText(maxed ? 'MAX' : ('Upgrade $'+up), r.upgrade.x+6, r.upgrade.y+10);
+    ctx.fillStyle = maxed ? '#aaa' : (canAfford ? '#fff' : '#6f8a72');
+    ctx.font = '10px monospace';
+    ctx.fillText(maxed ? 'MAX' : ('▲ $' + up), r.upgrade.x + 6, r.upgrade.y + 11);
+
+    // ---- Sell button (red, $ + refund) ----
     ctx.fillStyle = '#8a3b2b'; ctx.fillRect(r.sell.x, r.sell.y, r.sell.w, r.sell.h);
-    ctx.fillStyle = '#fff'; ctx.fillText('Sell $'+sellRefund(t), r.sell.x+6, r.sell.y+10);
+    ctx.fillStyle = '#fff';
+    ctx.fillText('$ ' + sellRefund(t), r.sell.x + 6, r.sell.y + 11);
   }
 
   function onTap(evt) {
