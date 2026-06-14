@@ -161,35 +161,13 @@
     canvas.style.width = Math.floor(IW * scale) + 'px';
     canvas.style.height = Math.floor(IH * scale) + 'px';
   }
-  // On-screen viewport/tap readout for debugging mobile layout.
-  // TEMP: hardcoded on (iOS standalone PWAs don't share localStorage with Safari, and
-  // they drop the URL query string on launch, so neither flag survives into the app).
-  // Set back to false (or remove the debug code) once the standalone tap offset is fixed.
-  let DEBUG = true;
-  let lastTap = null; // {x,y} of the last tap in internal coords, drawn as a marker when DEBUG
-  let dbgEl = null;
-  function showDebug() {
-    if (!DEBUG) return;
-    if (!dbgEl) {
-      dbgEl = document.createElement('div');
-      dbgEl.style.cssText = 'position:fixed;top:2px;left:2px;z-index:9999;background:rgba(0,0,0,0.8);color:#0f0;font:10px monospace;padding:3px 5px;white-space:pre;pointer-events:none';
-      document.body.appendChild(dbgEl);
-    }
-    const c = canvas.getBoundingClientRect(), vv = window.visualViewport;
-    dbgEl.textContent =
-      'inner ' + window.innerWidth + 'x' + window.innerHeight +
-      '\nstage ' + stage.clientWidth + 'x' + stage.clientHeight +
-      '\nvv    ' + (vv ? Math.round(vv.width)+'x'+Math.round(vv.height)+' @'+Math.round(vv.offsetLeft)+','+Math.round(vv.offsetTop) : 'n/a') +
-      '\ncanvas L' + Math.round(c.left) + ' R' + Math.round(window.innerWidth - c.right) + ' ' + Math.round(c.width)+'x'+Math.round(c.height);
-  }
-
-  window.addEventListener('resize', () => { fitCanvas(); showDebug(); });
-  // Re-fit on rotate (with a delayed pass — iOS reports the old size synchronously).
-  window.addEventListener('orientationchange', () => { fitCanvas(); showDebug(); setTimeout(()=>{fitCanvas();showDebug();}, 250); setTimeout(()=>{fitCanvas();showDebug();}, 600); });
-  if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { fitCanvas(); showDebug(); });
+  window.addEventListener('resize', fitCanvas);
+  // Re-fit on rotate (with delayed passes — iOS reports the old size synchronously).
+  window.addEventListener('orientationchange', () => { fitCanvas(); setTimeout(fitCanvas, 250); setTimeout(fitCanvas, 600); });
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', fitCanvas);
   // Standalone launch settles the viewport late — re-fit on load and a few beats after.
-  window.addEventListener('load', () => { fitCanvas(); showDebug(); setTimeout(()=>{fitCanvas();showDebug();}, 150); setTimeout(()=>{fitCanvas();showDebug();}, 500); });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { fitCanvas(); showDebug(); } });
+  window.addEventListener('load', () => { fitCanvas(); setTimeout(fitCanvas, 150); setTimeout(fitCanvas, 500); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) fitCanvas(); });
   fitCanvas();
 
   // ---- Path geometry helpers ----
@@ -635,7 +613,6 @@
     if (screen !== 'playing') return;   // map select & game over use DOM overlays
     const p = canvasPoint(evt);
     const hud = hudHitRects();
-    if (DEBUG) { lastTap = { x: p.x, y: p.y }; if (dbgEl) dbgEl.textContent += '\ntap ' + Math.round(p.x) + ',' + Math.round(p.y); }
 
     // (a) HUD: Menu (back to map select), Start Wave, tower bar selection
     if (inRect(p, hud.menuHit)) { showMapSelect(); return; }
@@ -735,15 +712,6 @@
     drawHUD();
     drawShopStats();
     drawPopup();
-    if (DEBUG) {
-      const mh = hudHitRects().menuHit;
-      ctx.strokeStyle = '#0f0'; ctx.lineWidth = 1; ctx.strokeRect(mh.x, mh.y, mh.w, mh.h); // menu tap zone
-      if (lastTap) { // crosshair where the last tap actually landed
-        ctx.strokeStyle = '#f00'; ctx.beginPath();
-        ctx.moveTo(lastTap.x - 8, lastTap.y); ctx.lineTo(lastTap.x + 8, lastTap.y);
-        ctx.moveTo(lastTap.x, lastTap.y - 8); ctx.lineTo(lastTap.x, lastTap.y + 8); ctx.stroke();
-      }
-    }
   }
 
   function renderMapSelect() {
