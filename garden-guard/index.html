@@ -161,12 +161,11 @@
     canvas.style.width = Math.floor(IW * scale) + 'px';
     canvas.style.height = Math.floor(IH * scale) + 'px';
   }
-  // Optional on-screen viewport readout for debugging mobile layout.
-  // Toggle with ?debug (on) / ?debug=off in the URL — persists via localStorage so it
-  // survives the launch into the standalone home-screen app (which drops the query string).
-  if (/[?&]debug=off/.test(location.search)) { try { localStorage.removeItem('ggDebug'); } catch(e){} }
-  else if (/[?&]debug/.test(location.search)) { try { localStorage.setItem('ggDebug','1'); } catch(e){} }
-  let DEBUG = false; try { DEBUG = localStorage.getItem('ggDebug') === '1'; } catch(e){}
+  // On-screen viewport/tap readout for debugging mobile layout.
+  // TEMP: hardcoded on (iOS standalone PWAs don't share localStorage with Safari, and
+  // they drop the URL query string on launch, so neither flag survives into the app).
+  // Set back to false (or remove the debug code) once the standalone tap offset is fixed.
+  let DEBUG = true;
   let lastTap = null; // {x,y} of the last tap in internal coords, drawn as a marker when DEBUG
   let dbgEl = null;
   function showDebug() {
