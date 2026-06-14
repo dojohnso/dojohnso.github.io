@@ -23,13 +23,10 @@
     overflow: hidden;
   }
   #stage {
-    position: relative;
+    /* 100vw/100vh include the notch/home-indicator strip under viewport-fit=cover,
+       so the stage spans the FULL physical screen and the canvas centers on it. */
+    position: fixed; top: 0; left: 0;
     width: 100vw; height: 100vh;
-    /* Only pad top/bottom for the status bar — the canvas is centered & letterboxed,
-       so the side bars already absorb the left/right notch insets. Padding the sides
-       (which are asymmetric in landscape) would shove the playfield off-center. */
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
     display: flex; justify-content: center; align-items: center;
   }
   canvas {
@@ -162,13 +159,31 @@
     canvas.style.width = Math.floor(IW * scale) + 'px';
     canvas.style.height = Math.floor(IH * scale) + 'px';
   }
-  window.addEventListener('resize', fitCanvas);
+  // Optional on-screen viewport readout for debugging mobile layout (?debug in the URL).
+  const DEBUG = /[?&]debug/.test(location.search);
+  let dbgEl = null;
+  function showDebug() {
+    if (!DEBUG) return;
+    if (!dbgEl) {
+      dbgEl = document.createElement('div');
+      dbgEl.style.cssText = 'position:fixed;top:2px;left:2px;z-index:9999;background:rgba(0,0,0,0.8);color:#0f0;font:10px monospace;padding:3px 5px;white-space:pre;pointer-events:none';
+      document.body.appendChild(dbgEl);
+    }
+    const c = canvas.getBoundingClientRect(), vv = window.visualViewport;
+    dbgEl.textContent =
+      'inner ' + window.innerWidth + 'x' + window.innerHeight +
+      '\nstage ' + stage.clientWidth + 'x' + stage.clientHeight +
+      '\nvv    ' + (vv ? Math.round(vv.width)+'x'+Math.round(vv.height)+' @'+Math.round(vv.offsetLeft)+','+Math.round(vv.offsetTop) : 'n/a') +
+      '\ncanvas L' + Math.round(c.left) + ' R' + Math.round(window.innerWidth - c.right) + ' ' + Math.round(c.width)+'x'+Math.round(c.height);
+  }
+
+  window.addEventListener('resize', () => { fitCanvas(); showDebug(); });
   // Re-fit on rotate (with a delayed pass — iOS reports the old size synchronously).
-  window.addEventListener('orientationchange', () => { fitCanvas(); setTimeout(fitCanvas, 250); setTimeout(fitCanvas, 600); });
-  if (window.visualViewport) window.visualViewport.addEventListener('resize', fitCanvas);
+  window.addEventListener('orientationchange', () => { fitCanvas(); showDebug(); setTimeout(()=>{fitCanvas();showDebug();}, 250); setTimeout(()=>{fitCanvas();showDebug();}, 600); });
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { fitCanvas(); showDebug(); });
   // Standalone launch settles the viewport late — re-fit on load and a few beats after.
-  window.addEventListener('load', () => { fitCanvas(); setTimeout(fitCanvas, 150); setTimeout(fitCanvas, 500); });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) fitCanvas(); });
+  window.addEventListener('load', () => { fitCanvas(); showDebug(); setTimeout(()=>{fitCanvas();showDebug();}, 150); setTimeout(()=>{fitCanvas();showDebug();}, 500); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { fitCanvas(); showDebug(); } });
   fitCanvas();
 
   // ---- Path geometry helpers ----

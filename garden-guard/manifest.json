@@ -3,7 +3,7 @@
   "short_name": "GardenGuard",
   "description": "Defend your veggie patch! A cute pixel-art tower defense game.",
   "start_url": "./index.html",
-  "display": "fullscreen",
+  "display": "standalone",
   "orientation": "landscape",
   "background_color": "#13301a",
   "theme_color": "#3a7d3a",
