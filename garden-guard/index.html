@@ -2,8 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#3a7d3a">
+<!-- iOS standalone (home-screen) web app: fill the screen, no Safari chrome -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Garden Guard">
+<link rel="apple-touch-icon" href="./icon-192.png">
 <title>Garden Guard</title>
 <link rel="manifest" href="./manifest.json">
 <style>
@@ -139,19 +145,24 @@
   // Scale the canvas element to the largest fit in the viewport,
   // preserving the 16:9 internal ratio. Drawing always happens in IW×IH space.
   function fitCanvas() {
-    // Use the visual viewport on mobile (accounts for the address bar / safe areas);
-    // fall back to innerWidth/Height (and a last-resort clientWidth) on desktop.
-    const vw = (window.visualViewport && window.visualViewport.width)  || window.innerWidth  || document.documentElement.clientWidth;
-    const vh = (window.visualViewport && window.visualViewport.height) || window.innerHeight || document.documentElement.clientHeight;
+    // Largest of the available width/height reports — in an iOS standalone (home-screen)
+    // app the layout viewport, innerWidth and visualViewport can disagree, especially
+    // right after launch/rotate. Taking the max fills the screen instead of under-sizing.
+    const de = document.documentElement;
+    const vv = window.visualViewport;
+    const vw = Math.max(window.innerWidth || 0, de.clientWidth || 0, vv ? vv.width  : 0);
+    const vh = Math.max(window.innerHeight || 0, de.clientHeight || 0, vv ? vv.height : 0);
     const scale = Math.min(vw / IW, vh / IH);
     canvas.style.width = Math.floor(IW * scale) + 'px';
     canvas.style.height = Math.floor(IH * scale) + 'px';
   }
   window.addEventListener('resize', fitCanvas);
-  window.addEventListener('orientationchange', () => { fitCanvas(); setTimeout(fitCanvas, 300); });
+  // Re-fit on rotate (with a delayed pass — iOS reports the old size synchronously).
+  window.addEventListener('orientationchange', () => { fitCanvas(); setTimeout(fitCanvas, 250); setTimeout(fitCanvas, 600); });
   if (window.visualViewport) window.visualViewport.addEventListener('resize', fitCanvas);
-  // Mobile viewport often isn't settled at parse time — re-fit on load and a beat later.
-  window.addEventListener('load', () => { fitCanvas(); setTimeout(fitCanvas, 150); });
+  // Standalone launch settles the viewport late — re-fit on load and a few beats after.
+  window.addEventListener('load', () => { fitCanvas(); setTimeout(fitCanvas, 150); setTimeout(fitCanvas, 500); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) fitCanvas(); });
   fitCanvas();
 
   // ---- Path geometry helpers ----
