@@ -25,6 +25,8 @@
   #stage {
     position: relative;
     width: 100vw; height: 100vh;
+    /* Keep the playfield out from under the notch / status bar / address bar */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     display: flex; justify-content: center; align-items: center;
   }
   canvas {
@@ -144,14 +146,15 @@
 
   // Scale the canvas element to the largest fit in the viewport,
   // preserving the 16:9 internal ratio. Drawing always happens in IW×IH space.
+  const stage = document.getElementById('stage');
   function fitCanvas() {
-    // Largest of the available width/height reports — in an iOS standalone (home-screen)
-    // app the layout viewport, innerWidth and visualViewport can disagree, especially
-    // right after launch/rotate. Taking the max fills the screen instead of under-sizing.
+    // Measure the stage's content box — it already excludes the safe-area padding,
+    // so the canvas is sized to fit the *usable* area (clear of notch/status/address bar).
+    // Fall back to viewport reports if the stage hasn't laid out yet.
     const de = document.documentElement;
     const vv = window.visualViewport;
-    const vw = Math.max(window.innerWidth || 0, de.clientWidth || 0, vv ? vv.width  : 0);
-    const vh = Math.max(window.innerHeight || 0, de.clientHeight || 0, vv ? vv.height : 0);
+    const vw = stage.clientWidth  || Math.max(window.innerWidth || 0, de.clientWidth || 0, vv ? vv.width  : 0);
+    const vh = stage.clientHeight || Math.max(window.innerHeight || 0, de.clientHeight || 0, vv ? vv.height : 0);
     const scale = Math.min(vw / IW, vh / IH);
     canvas.style.width = Math.floor(IW * scale) + 'px';
     canvas.style.height = Math.floor(IH * scale) + 'px';
@@ -473,7 +476,7 @@
     const barY = IH - 40, bw = 150, gap = 8, x0 = 8;
     const towers = TOWER_ORDER.map((id, i) => ({ id, x: x0 + i*(bw+gap), y: barY, w: bw, h: 34 }));
     const startWave = { x: IW - 138, y: 26, w: 128, h: 26 };
-    const menu = { x: IW - 70, y: 2, w: 66, h: 18 }; // in the top strip
+    const menu = { x: IW - 76, y: 0, w: 76, h: 22 }; // full-height top-strip corner, bigger tap target
     return { towers, startWave, menu };
   }
 
