@@ -139,11 +139,19 @@
   // Scale the canvas element to the largest fit in the viewport,
   // preserving the 16:9 internal ratio. Drawing always happens in IW×IH space.
   function fitCanvas() {
-    const scale = Math.min(window.innerWidth / IW, window.innerHeight / IH);
+    // Use the visual viewport on mobile (accounts for the address bar / safe areas);
+    // fall back to innerWidth/Height (and a last-resort clientWidth) on desktop.
+    const vw = (window.visualViewport && window.visualViewport.width)  || window.innerWidth  || document.documentElement.clientWidth;
+    const vh = (window.visualViewport && window.visualViewport.height) || window.innerHeight || document.documentElement.clientHeight;
+    const scale = Math.min(vw / IW, vh / IH);
     canvas.style.width = Math.floor(IW * scale) + 'px';
     canvas.style.height = Math.floor(IH * scale) + 'px';
   }
   window.addEventListener('resize', fitCanvas);
+  window.addEventListener('orientationchange', () => { fitCanvas(); setTimeout(fitCanvas, 300); });
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', fitCanvas);
+  // Mobile viewport often isn't settled at parse time — re-fit on load and a beat later.
+  window.addEventListener('load', () => { fitCanvas(); setTimeout(fitCanvas, 150); });
   fitCanvas();
 
   // ---- Path geometry helpers ----
