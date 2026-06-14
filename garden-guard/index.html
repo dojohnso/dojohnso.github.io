@@ -161,8 +161,13 @@
     canvas.style.width = Math.floor(IW * scale) + 'px';
     canvas.style.height = Math.floor(IH * scale) + 'px';
   }
-  // Optional on-screen viewport readout for debugging mobile layout (?debug in the URL).
-  const DEBUG = /[?&]debug/.test(location.search);
+  // Optional on-screen viewport readout for debugging mobile layout.
+  // Toggle with ?debug (on) / ?debug=off in the URL — persists via localStorage so it
+  // survives the launch into the standalone home-screen app (which drops the query string).
+  if (/[?&]debug=off/.test(location.search)) { try { localStorage.removeItem('ggDebug'); } catch(e){} }
+  else if (/[?&]debug/.test(location.search)) { try { localStorage.setItem('ggDebug','1'); } catch(e){} }
+  let DEBUG = false; try { DEBUG = localStorage.getItem('ggDebug') === '1'; } catch(e){}
+  let lastTap = null; // {x,y} of the last tap in internal coords, drawn as a marker when DEBUG
   let dbgEl = null;
   function showDebug() {
     if (!DEBUG) return;
@@ -633,7 +638,7 @@
     if (screen !== 'playing') return;   // map select & game over use DOM overlays
     const p = canvasPoint(evt);
     const hud = hudHitRects();
-    if (DEBUG && dbgEl) dbgEl.textContent += '\ntap ' + Math.round(p.x) + ',' + Math.round(p.y); // last tap coords
+    if (DEBUG) { lastTap = { x: p.x, y: p.y }; if (dbgEl) dbgEl.textContent += '\ntap ' + Math.round(p.x) + ',' + Math.round(p.y); }
 
     // (a) HUD: Menu (back to map select), Start Wave, tower bar selection
     if (inRect(p, hud.menuHit)) { showMapSelect(); return; }
@@ -733,6 +738,15 @@
     drawHUD();
     drawShopStats();
     drawPopup();
+    if (DEBUG) {
+      const mh = hudHitRects().menuHit;
+      ctx.strokeStyle = '#0f0'; ctx.lineWidth = 1; ctx.strokeRect(mh.x, mh.y, mh.w, mh.h); // menu tap zone
+      if (lastTap) { // crosshair where the last tap actually landed
+        ctx.strokeStyle = '#f00'; ctx.beginPath();
+        ctx.moveTo(lastTap.x - 8, lastTap.y); ctx.lineTo(lastTap.x + 8, lastTap.y);
+        ctx.moveTo(lastTap.x, lastTap.y - 8); ctx.lineTo(lastTap.x, lastTap.y + 8); ctx.stroke();
+      }
+    }
   }
 
   function renderMapSelect() {
