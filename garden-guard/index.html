@@ -500,12 +500,11 @@
     const barY = IH - 40, bw = 150, gap = 8, x0 = 8;
     const towers = TOWER_ORDER.map((id, i) => ({ id, x: x0 + i*(bw+gap), y: barY, w: bw, h: 34 }));
     const startWave = { x: IW - 138, y: 26, w: 128, h: 26 };
-    // Menu drawn in the top strip (top-right). Its TAP zone is taller than the visual —
-    // extending down to just above Start Wave — so a touch that lands a bit low (as
-    // happens in the iOS standalone app) still registers. Width matches the button so it
-    // never overlaps Start Wave.
-    const menu = { x: IW - 76, y: 1, w: 76, h: 20 };
-    const menuHit = { x: IW - 84, y: 0, w: 84, h: 26 };   // taller/wider catch zone, stops at Start Wave's top
+    // Menu sits in the PLAYFIELD just below the top strip (top-left). The top ~22px strip
+    // is a dead tap zone in the standalone app (system UI swallows touches there), so a
+    // button up there is unreachable — keep it below y26 where taps actually register.
+    const menu = { x: 8, y: 26, w: 76, h: 26 };
+    const menuHit = { x: 4, y: 24, w: 86, h: 32 };   // small forgiving margin
     return { towers, startWave, menu, menuHit };
   }
 
@@ -556,13 +555,12 @@
     ctx.fillText('Wave ' + game.wave, 180, 11);
     if (game.def) ctx.fillText(game.def.name, 290, 11);
 
-    // Menu button (return to map select)
+    // Menu button (return to map select) — in the playfield just below the top strip
     const mb = hud.menu;
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fillStyle = '#2e7d32';
     ctx.fillRect(mb.x, mb.y, mb.w, mb.h);
-    ctx.fillStyle = '#fff'; ctx.font = '11px monospace';
-    ctx.fillText('☰ Menu', mb.x + 7, mb.y + mb.h/2);
-    ctx.font = '12px monospace';
+    ctx.fillStyle = '#fff'; ctx.font = '12px monospace';
+    ctx.fillText('☰ Menu', mb.x + 9, mb.y + mb.h/2);
 
     // bottom tower bar
     hud.towers.forEach(tb => {
