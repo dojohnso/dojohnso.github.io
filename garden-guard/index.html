@@ -496,8 +496,13 @@
     const barY = IH - 40, bw = 150, gap = 8, x0 = 8;
     const towers = TOWER_ORDER.map((id, i) => ({ id, x: x0 + i*(bw+gap), y: barY, w: bw, h: 34 }));
     const startWave = { x: IW - 138, y: 26, w: 128, h: 26 };
-    const menu = { x: IW - 76, y: 0, w: 76, h: 22 }; // full-height top-strip corner, bigger tap target
-    return { towers, startWave, menu };
+    // Menu drawn in the top strip (top-right). Its TAP zone is taller than the visual —
+    // extending down to just above Start Wave — so a touch that lands a bit low (as
+    // happens in the iOS standalone app) still registers. Width matches the button so it
+    // never overlaps Start Wave.
+    const menu = { x: IW - 76, y: 1, w: 76, h: 20 };
+    const menuHit = { x: IW - 84, y: 0, w: 84, h: 26 };   // taller/wider catch zone, stops at Start Wave's top
+    return { towers, startWave, menu, menuHit };
   }
 
   // Max tier-0 stat values across all towers, for normalizing the shop bars (0..1).
@@ -628,9 +633,10 @@
     if (screen !== 'playing') return;   // map select & game over use DOM overlays
     const p = canvasPoint(evt);
     const hud = hudHitRects();
+    if (DEBUG && dbgEl) dbgEl.textContent += '\ntap ' + Math.round(p.x) + ',' + Math.round(p.y); // last tap coords
 
     // (a) HUD: Menu (back to map select), Start Wave, tower bar selection
-    if (inRect(p, hud.menu)) { showMapSelect(); return; }
+    if (inRect(p, hud.menuHit)) { showMapSelect(); return; }
     if (!game.waveActive && inRect(p, hud.startWave)) { startWave(); return; }
     for (const tb of hud.towers) {
       if (inRect(p, tb)) {
