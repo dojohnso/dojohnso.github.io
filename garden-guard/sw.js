@@ -1,6 +1,6 @@
 // Bump CACHE_NAME on every release so the activate handler purges old caches
 // and returning players pick up the new version.
-const CACHE_NAME = 'garden-guard-v19';
+const CACHE_NAME = 'garden-guard-v20';
 // Relative paths: this app is served from /garden-guard/, not the site root.
 // The public/*.png sprites are intentionally NOT precached here — they're
 // fetched on demand and cached network-first by the fetch handler below.

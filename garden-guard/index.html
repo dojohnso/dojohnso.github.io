@@ -53,10 +53,10 @@
   const ctx = canvas.getContext('2d');
   const IW = 640, IH = 360; // internal resolution (landscape 16:9)
 
-  const START_CASH = 180;
+  const START_CASH = 200;
   const START_HEARTS = 20;
   const UNLOCK_WAVE = 10;          // clear this wave to unlock the next map
-  const WAVE_CLEAR_BONUS = 25;     // cash awarded when a wave is fully cleared
+  const WAVE_CLEAR_BONUS = 26;     // cash awarded when a wave is fully cleared
   const WAVE_COUNTDOWN_MS = 8000;  // auto-start the next wave after this idle countdown
   const EARLY_START_BONUS_PER_SEC = 2; // bonus cash per whole second skipped by tapping Start Wave early
 
@@ -85,10 +85,10 @@
 
   // Pest types. hp/speed scale with wave elsewhere. hearts = cost if it leaks.
   const PESTS = {
-    ant:   { name:'Ant',         hp:14,  speed:36, bounty:5,  hearts:1, color:'#8a3b2b', size:10, img:'pest-ant',    sprH:12 },
-    beetle:{ name:'Beetle',      hp:48,  speed:22, bounty:12, hearts:2, color:'#2b3a8a', size:14, img:'pest-beetle', sprH:16 },
-    lizard:{ name:'Lizard',      hp:9,   speed:74, bounty:7,  hearts:1, color:'#3a9d4a', size:12, img:'pest-lizard', sprH:14 },
-    cat:   { name:'Caterpillar', hp:260, speed:18, bounty:60, hearts:5, color:'#b85ac0', size:20, img:'pest-cat',    sprH:24 },
+    ant:   { name:'Ant',         hp:24,  speed:40, bounty:5,  hearts:1, color:'#8a3b2b', size:10, img:'pest-ant',    sprH:12 },
+    beetle:{ name:'Beetle',      hp:84,  speed:24, bounty:11, hearts:2, color:'#2b3a8a', size:14, img:'pest-beetle', sprH:16 },
+    lizard:{ name:'Lizard',      hp:16,  speed:82, bounty:6,  hearts:1, color:'#3a9d4a', size:12, img:'pest-lizard', sprH:14 },
+    cat:   { name:'Caterpillar', hp:440, speed:20, bounty:55, hearts:5, color:'#b85ac0', size:20, img:'pest-cat',    sprH:24 },
   };
 
   // Maps as data. path = ordered waypoints (internal px). plots = buildable centers.
@@ -218,11 +218,12 @@
       ctx.fillStyle = '#2e7d32';
       ctx.fillRect(goal.x - 24, goal.y - 24, 36, 48);
     }
-    // plots
+    // plots — empty plots stand out; occupied ones fade so the tower reads clearly
     ctx.lineWidth = 2;
     plots.forEach(pl => {
-      ctx.fillStyle = 'rgba(255,255,255,0.18)';
-      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      const occupied = pl.tower;
+      ctx.fillStyle = occupied ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.18)';
+      ctx.strokeStyle = occupied ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.5)';
       ctx.beginPath(); ctx.arc(pl.x, pl.y, 12, 0, Math.PI*2); ctx.fill(); ctx.stroke();
     });
   }
@@ -330,14 +331,14 @@
   // HP grows ~12% per wave; speed nudges up slightly. Returns a scaled pest instance.
   function scaledPest(type, n) {
     const base = PESTS[type];
-    const hp = Math.round(base.hp * Math.pow(1.23, n - 1));
-    const speed = base.speed * (1 + Math.min(0.6, (n - 1) * 0.02));
+    const hp = Math.round(base.hp * Math.pow(1.22, n - 1));
+    const speed = base.speed * (1 + Math.min(0.7, (n - 1) * 0.028));
     return { type, hp, maxHp: hp, dist: 0, speed, slowUntil: 0 };
   }
   // Composition: counts grow with n; types are interleaved round-robin so the
   // stream is mixed (not grouped); boss appended every 5th wave.
   function waveSpec(n) {
-    const counts = { ant: 4 + n, lizard: Math.floor(n * 0.7), beetle: Math.floor(n / 2) };
+    const counts = { ant: 3 + n, lizard: Math.floor(n * 0.8), beetle: Math.floor(n * 0.55) };
     const order = ['ant', 'lizard', 'beetle'];
     const list = [];
     let remaining = counts.ant + counts.lizard + counts.beetle;
@@ -548,11 +549,21 @@
       const selected = game.selectedTowerType === id;
       ctx.fillStyle = selected ? '#2e7d32' : (affordable ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.25)');
       ctx.fillRect(tb.x, tb.y, tb.w, tb.h);
-      ctx.fillStyle = affordable ? TOWERS[id].color : '#777';
-      ctx.fillRect(tb.x + 4, tb.y + 7, 20, 20);
+      // tower icon (sprite) over a faint color backing; greyed/dimmed when unaffordable
+      ctx.fillStyle = affordable ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.15)';
+      ctx.fillRect(tb.x + 3, tb.y + 4, 26, 26);
+      const im = IMG[TOWERS[id].img];
+      if (im && im.width) {
+        ctx.globalAlpha = affordable ? 1 : 0.4;
+        ctx.drawImage(im, tb.x + 4, tb.y + 5);   // 24x24 sprite
+        ctx.globalAlpha = 1;
+      } else {                                    // fallback color box if sprite missing
+        ctx.fillStyle = affordable ? TOWERS[id].color : '#777';
+        ctx.fillRect(tb.x + 4, tb.y + 7, 20, 20);
+      }
       ctx.fillStyle = affordable ? '#fff' : '#999';
-      ctx.fillText(TOWERS[id].name, tb.x + 30, tb.y + 12);
-      ctx.fillText('$' + cost, tb.x + 30, tb.y + 25);
+      ctx.fillText(TOWERS[id].name, tb.x + 34, tb.y + 12);
+      ctx.fillText('$' + cost, tb.x + 34, tb.y + 25);
     });
 
     // Start Wave button when idle, with the auto-start countdown
