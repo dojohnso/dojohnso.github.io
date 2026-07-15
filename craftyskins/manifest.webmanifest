@@ -1,8 +1,8 @@
 {
-  "name": "SkinForge",
-  "short_name": "SkinForge",
-  "start_url": "/skinforge/",
-  "scope": "/skinforge/",
+  "name": "CraftySkins",
+  "short_name": "CraftySkins",
+  "start_url": "/craftyskins/",
+  "scope": "/craftyskins/",
   "display": "standalone",
   "background_color": "#f3f4f6",
   "theme_color": "#2563eb",
