@@ -1,8 +1,8 @@
 {
   "name": "CraftySkins",
   "short_name": "CraftySkins",
-  "start_url": "/craftyskins/",
-  "scope": "/craftyskins/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#f3f4f6",
   "theme_color": "#2563eb",
