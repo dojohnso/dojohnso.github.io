@@ -52,7 +52,7 @@
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const IW = 640, IH = 360; // internal resolution (landscape 16:9)
-  const VERSION = 'v25';    // bump alongside CACHE_NAME in sw.js on each release
+  const VERSION = 'v26';    // bump alongside CACHE_NAME in sw.js on each release
 
   const START_CASH = 200;
   const START_HEARTS = 20;
@@ -552,19 +552,20 @@
     // Pause + speed sit to the right of Menu, same tappable row.
     const pause = { x: 92,  y: 26, w: 40, h: 26 };
     const speed = { x: 136, y: 26, w: 40, h: 26 };
-    // "Wave N" label tap target — extends down past the iOS dead top strip so it registers.
-    const waveLabel = { x: 176, y: 0, w: 96, h: 52 };
-    return { towers, startWave, menu, menuHit, pause, speed, waveLabel };
+    // "Jump" wave button — in the live HUD row (easy to tap), to the right of speed.
+    const waveBtn = { x: 184, y: 26, w: 92, h: 26 };
+    return { towers, startWave, menu, menuHit, pause, speed, waveBtn };
   }
 
-  // Centered wave-jump picker: − [N] + and a Jump button. Only used while open.
+  // Centered wave-jump picker: − [N] + with Jump and Cancel buttons stacked below.
   function wavePickerRects() {
-    const w = 220, h = 96, x = (IW - w) / 2, y = 70;
+    const w = 230, h = 130, x = (IW - w) / 2, y = 60;
     return {
-      box:   { x, y, w, h },
-      minus: { x: x + 16,       y: y + 30, w: 40, h: 32 },
-      plus:  { x: x + w - 56,   y: y + 30, w: 40, h: 32 },
-      jump:  { x: x + 40,       y: y + h - 26, w: w - 80, h: 20 },
+      box:    { x, y, w, h },
+      minus:  { x: x + 16,     y: y + 28, w: 44, h: 36 },
+      plus:   { x: x + w - 60, y: y + 28, w: 44, h: 36 },
+      jump:   { x: x + 28,     y: y + 72, w: w - 56, h: 24 },
+      cancel: { x: x + 28,     y: y + 100, w: w - 56, h: 22 },
     };
   }
 
@@ -658,11 +659,19 @@
     ctx.fillStyle = '#fff';
     ctx.fillText(game.speed + 'x', sb.x + sb.w/2 - 8, sb.y + sb.h/2);
 
-    // small "PAUSED" label beside the speed button (game stays interactive)
+    // Wave-jump button (disabled-looking while a wave is active)
+    const wb = hud.waveBtn;
+    const canJump = !game.waveActive;
+    ctx.fillStyle = canJump ? '#3a5f8a' : 'rgba(0,0,0,0.3)';
+    ctx.fillRect(wb.x, wb.y, wb.w, wb.h);
+    ctx.fillStyle = canJump ? '#fff' : '#888'; ctx.font = '11px monospace';
+    ctx.fillText('Jump Wave', wb.x + 8, wb.y + wb.h/2);
+
+    // small "PAUSED" label to the right of the wave button (game stays interactive)
     if (game.paused) {
-      ctx.fillStyle = '#fff';
-      drawPauseIcon(sb.x + sb.w + 15, sb.y + sb.h/2, 10);
-      ctx.fillText('PAUSED', sb.x + sb.w + 24, sb.y + sb.h/2);
+      ctx.fillStyle = '#fff'; ctx.font = '12px monospace';
+      drawPauseIcon(wb.x + wb.w + 15, wb.y + wb.h/2, 10);
+      ctx.fillText('PAUSED', wb.x + wb.w + 24, wb.y + wb.h/2);
     }
 
     // bottom tower bar
@@ -793,22 +802,23 @@
     const hud = hudHitRects();
     dragging = false;
 
-    // (0) wave-jump picker is modal: handle its buttons, dismiss on outside tap
+    // (0) wave-jump picker is modal: only its own buttons act; taps elsewhere are ignored
+    //     (no tap-outside-to-cancel, to avoid accidental dismissal).
     if (game.wavePicker != null) {
       const pk = wavePickerRects();
-      if (inRect(p, pk.minus)) { game.wavePicker = Math.max(1, game.wavePicker - 1); return; }
-      if (inRect(p, pk.plus))  { game.wavePicker = game.wavePicker + 1; return; }
-      if (inRect(p, pk.jump))  { jumpToWave(game.wavePicker); return; }
-      closeWavePicker();       // tapped outside → cancel
-      return;
+      if (inRect(p, pk.minus))  { game.wavePicker = Math.max(1, game.wavePicker - 1); return; }
+      if (inRect(p, pk.plus))   { game.wavePicker = game.wavePicker + 1; return; }
+      if (inRect(p, pk.jump))   { jumpToWave(game.wavePicker); return; }
+      if (inRect(p, pk.cancel)) { closeWavePicker(); return; }
+      return;  // swallow taps outside the modal
     }
 
     // (a) HUD buttons
     if (inRect(p, hud.menuHit)) { showMapSelect(); return; }
     if (inRect(p, hud.pause))   { game.paused = !game.paused; return; }
     if (inRect(p, hud.speed))   { game.speed = game.speed === 2 ? 1 : 2; return; }
-    // "Wave N" label → open the jump picker (pauses while choosing)
-    if (inRect(p, hud.waveLabel)) {
+    // Jump-Wave button → open the jump picker (pauses while choosing)
+    if (inRect(p, hud.waveBtn)) {
       if (!game.waveActive) {
         game.wavePicker = Math.max(1, game.wave + 1);
         game.pausedBeforePicker = game.paused;  // remember, so we don't un-pause a manual pause
@@ -983,8 +993,12 @@
     ctx.fillText('+', r.plus.x + r.plus.w/2, r.plus.y + r.plus.h/2);
     // Jump button (shows the estimated cash)
     ctx.fillStyle = '#2e7d32'; ctx.fillRect(r.jump.x, r.jump.y, r.jump.w, r.jump.h);
-    ctx.fillStyle = '#fff'; ctx.font = '11px monospace';
+    ctx.fillStyle = '#fff'; ctx.font = '12px monospace';
     ctx.fillText('Jump  ($' + estCashForWave(N) + ')', b.x + b.w/2, r.jump.y + r.jump.h/2);
+    // Cancel button
+    ctx.fillStyle = '#5a3030'; ctx.fillRect(r.cancel.x, r.cancel.y, r.cancel.w, r.cancel.h);
+    ctx.fillStyle = '#fff'; ctx.font = '11px monospace';
+    ctx.fillText('Cancel', b.x + b.w/2, r.cancel.y + r.cancel.h/2);
     ctx.textAlign = 'left';
   }
 
