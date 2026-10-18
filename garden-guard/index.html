@@ -52,7 +52,7 @@
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const IW = 640, IH = 360; // internal resolution (landscape 16:9)
-  const VERSION = 'v26';    // bump alongside CACHE_NAME in sw.js on each release
+  const VERSION = 'v27';    // bump alongside CACHE_NAME in sw.js on each release
 
   const START_CASH = 200;
   const START_HEARTS = 20;
@@ -225,6 +225,10 @@
     if (x < TOWER_R || x > IW - TOWER_R) return false;      // playfield bounds (x)
     if (y < 24 + TOWER_R || y > IH - 40 - TOWER_R) return false; // clear HUD top strip + tower bar
     if (distToPath(x, y) < PATH_CLEAR) return false;        // off the path
+    for (const d of game.decor) {                           // not on a tree/bush
+      const clear = d.r + TOWER_R - 2;
+      if (dist2(x, y, d.x, d.y) < clear*clear) return false;
+    }
     for (const t of game.towers) {                          // not overlapping another tower
       if (t === ignoreTower) continue;
       if (dist2(x, y, t.x, t.y) < TOWER_GAP*TOWER_GAP) return false;
@@ -234,15 +238,85 @@
 
   // ---- Terrain / path renderer ----
 
+  // Texture is baked ONCE into offscreen canvases, then blitted each frame — never
+  // speckle per-frame (thousands of draws/tick would tank the framerate).
+
+  // A repeating grass tile: base green + a fine, even scatter of tiny blade marks.
+  // Kept deliberately subtle (no big tonal blobs — those read as clumps on repeat).
+  const GRASS_TILE = (() => {
+    const T = 96, c = document.createElement('canvas'); c.width = c.height = T;
+    const g = c.getContext('2d');
+    g.fillStyle = '#6ab04c'; g.fillRect(0, 0, T, T);
+    // very faint, small tone flecks for a touch of variation — low alpha, small radius
+    for (let i = 0; i < 40; i++) {
+      const lit = Math.random() < 0.5;
+      g.fillStyle = lit ? 'rgba(120,186,88,0.18)' : 'rgba(78,132,56,0.16)';
+      const x = Math.random()*T, y = Math.random()*T, r = 1.5 + Math.random()*2.5;
+      g.beginPath(); g.arc(x, y, r, 0, Math.PI*2); g.fill();
+    }
+    // the main texture: lots of tiny blades, light + dark, evenly spread and low-contrast
+    for (let i = 0; i < 150; i++) {
+      const x = Math.random()*T, y = Math.random()*T;
+      const lit = Math.random() < 0.55;
+      g.strokeStyle = lit ? 'rgba(130,200,96,0.35)' : 'rgba(58,110,44,0.35)';
+      g.lineWidth = 1;
+      const lean = (Math.random()-0.5)*2;
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + lean, y - (2 + Math.random()*2)); g.stroke();
+    }
+    return g.createPattern(c, 'repeat');
+  })();
+
+  // Bake the dirt path (with pebble/mottle texture) for a given path into a full-field
+  // offscreen canvas. Path is fixed per game, so this runs once in newGame().
+  function bakePathTexture(path) {
+    const c = document.createElement('canvas'); c.width = IW; c.height = IH;
+    const g = c.getContext('2d');
+    // the dirt stroke itself
+    g.strokeStyle = '#9a6a3a';
+    g.lineWidth = 26; g.lineJoin = 'round'; g.lineCap = 'round';
+    g.beginPath();
+    path.points.forEach((p, i) => i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y));
+    g.stroke();
+    // a slightly darker edge: stroke again, thinner, with a subtle inner line for depth
+    g.strokeStyle = 'rgba(120,82,44,0.55)'; g.lineWidth = 20;
+    g.beginPath();
+    path.points.forEach((p, i) => i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y));
+    g.stroke();
+    // pebbles: small dots placed within the path half-width (so they land on dirt,
+    // not the grass), varied tone — this is the path's texture.
+    for (const s of path.segs) {
+      const steps = Math.max(2, Math.floor(s.len / 7));
+      for (let i = 0; i < steps; i++) {
+        const t = i / steps;
+        const cx = s.a.x + (s.b.x - s.a.x) * t;
+        const cy = s.a.y + (s.b.y - s.a.y) * t;
+        // perpendicular offset within the path half-width
+        const nx = -(s.b.y - s.a.y), ny = (s.b.x - s.a.x);
+        const nl = Math.hypot(nx, ny) || 1;
+        const off = (Math.random() - 0.5) * 2 * (PATH_HALF_W - 3);
+        const px = cx + nx/nl * off, py = cy + ny/nl * off;
+        const dark = Math.random() < 0.5;
+        g.fillStyle = dark ? 'rgba(110,74,38,0.6)' : 'rgba(176,132,82,0.6)';
+        const r = 0.8 + Math.random()*1.6;
+        g.beginPath(); g.arc(px, py, r, 0, Math.PI*2); g.fill();
+      }
+    }
+    return c;
+  }
+
   function drawTerrain(path) {
-    ctx.fillStyle = '#6ab04c';
+    // grass: one patterned fill (texture baked into GRASS_TILE)
+    ctx.fillStyle = GRASS_TILE;
     ctx.fillRect(0, 0, IW, IH);
-    // dirt path
-    ctx.strokeStyle = '#9a6a3a';
-    ctx.lineWidth = 26; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    ctx.beginPath();
-    path.points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
-    ctx.stroke();
+    // dirt path: blit the pre-baked, textured path canvas
+    if (game && game.pathTex) ctx.drawImage(game.pathTex, 0, 0);
+    else {
+      ctx.strokeStyle = '#9a6a3a';
+      ctx.lineWidth = 26; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.beginPath();
+      path.points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+      ctx.stroke();
+    }
     // veggie patch (goal) at path end
     const goal = path.points[path.points.length - 1];
     const veg = IMG['veggie'];
@@ -254,16 +328,88 @@
     }
   }
 
+  // ---- Scenery renderer (canvas-drawn trees + bushes) ----
+  function drawDecor(decor) {
+    for (const d of decor) {
+      // soft ground shadow for a touch of depth
+      ctx.fillStyle = 'rgba(0,0,0,0.14)';
+      ctx.beginPath();
+      ctx.ellipse(d.x, d.y + d.r * 0.5, d.r * 1.1, d.r * 0.45, 0, 0, Math.PI*2);
+      ctx.fill();
+      if (d.kind === 'tree') {
+        // trunk
+        ctx.fillStyle = '#7a4a22';
+        ctx.fillRect(Math.round(d.x - 3), Math.round(d.y), 6, Math.round(d.r * 0.8));
+        // layered canopy (dark base → mid → highlight)
+        const cy = d.y - d.r * 0.3;
+        ctx.fillStyle = '#2f5d2a';
+        ctx.beginPath(); ctx.arc(d.x, cy, d.r, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#3f7d36';
+        ctx.beginPath(); ctx.arc(d.x - d.r*0.25, cy - d.r*0.2, d.r*0.75, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#56a046';
+        ctx.beginPath(); ctx.arc(d.x - d.r*0.35, cy - d.r*0.35, d.r*0.4, 0, Math.PI*2); ctx.fill();
+      } else {
+        // bush: three overlapping blobs, lit from upper-left
+        const b = d.r;
+        ctx.fillStyle = '#35702e';
+        ctx.beginPath(); ctx.arc(d.x - b*0.5, d.y, b*0.7, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(d.x + b*0.5, d.y, b*0.7, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(d.x, d.y - b*0.25, b*0.85, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#4e9440';
+        ctx.beginPath(); ctx.arc(d.x - b*0.2, d.y - b*0.35, b*0.4, 0, Math.PI*2); ctx.fill();
+      }
+    }
+  }
+
   // ---- Runtime state ----
 
   let game = null;
   let screen = 'mapSelect'; // 'mapSelect' | 'playing' | 'gameover'
 
+  // ---- Scenery (trees + bushes) ----
+  // Obstacle radii: the footprint a tower center must stay clear of.
+  const TREE_R = 15, BUSH_R = 10;
+
+  // Scatter random trees/bushes across the grass. Fresh per game (plain Math.random),
+  // but frozen into game.decor so it's stable wave-to-wave. Rejects anything on the
+  // path, on the veggie goal, under the HUD strips, or overlapping other scenery.
+  function scatterDecor(path) {
+    const decor = [];
+    const goal = path.points[path.points.length - 1];
+    const target = 8 + Math.floor(Math.random() * 7);   // aim for 8..14 pieces
+    let tries = 0;
+    while (decor.length < target && tries < 400) {
+      tries++;
+      const kind = Math.random() < 0.45 ? 'tree' : 'bush';
+      const r = kind === 'tree' ? TREE_R : BUSH_R;
+      const x = r + Math.random() * (IW - 2*r);
+      const y = (24 + r) + Math.random() * ((IH - 40 - r) - (24 + r));
+      if (distToPathPts(x, y, path) < PATH_HALF_W + r + 6) continue;  // keep off the path
+      if (dist2(x, y, goal.x, goal.y) < 42*42) continue;              // clear the veggie goal
+      let clash = false;
+      for (const d of decor) {
+        if (dist2(x, y, d.x, d.y) < (r + d.r + 4) * (r + d.r + 4)) { clash = true; break; }
+      }
+      if (clash) continue;
+      decor.push({ x, y, kind, r });
+    }
+    return decor;
+  }
+  // Path-distance helper that takes an explicit path (used before game.path is set).
+  function distToPathPts(px, py, path) {
+    let best = Infinity;
+    for (const s of path.segs) best = Math.min(best, distToSeg(px, py, s.a, s.b));
+    return best;
+  }
+
   function newGame(mapId) {
     const def = MAPS.find(m => m.id === mapId);
+    const path = buildPath(def.path);
     game = {
       mapId, def,
-      path: buildPath(def.path),
+      path,
+      pathTex: bakePathTexture(path), // pre-rendered textured dirt path (baked once)
+      decor: scatterDecor(path),  // frozen-per-game trees + bushes (placement obstacles)
       towers: [],       // free-placed {type, tier, x, y, cooldown}
       cash: START_CASH,
       hearts: START_HEARTS,
@@ -896,6 +1042,7 @@
       return;
     }
     drawTerrain(game.path);
+    drawDecor(game.decor);   // trees + bushes sit on the grass, under towers/pests
     for (const p of game.pests) {
       const def = PESTS[p.type];
       const pt = pointAt(game.path, p.dist);
