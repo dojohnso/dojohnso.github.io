@@ -52,7 +52,7 @@
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const IW = 640, IH = 360; // internal resolution (landscape 16:9)
-  const VERSION = 'v29';    // bump alongside CACHE_NAME in sw.js on each release
+  const VERSION = 'v30';    // bump alongside CACHE_NAME in sw.js on each release
 
   const START_CASH = 200;
   const START_HEARTS = 20;
@@ -64,24 +64,30 @@
   // Tower types. range/px, dmg, fireMs (cooldown), and per-tier stats.
   // tiers[i] gives {cost, dmg, range, fireMs} for tier i (0 = base buy).
   const TOWERS = {
-    can:    { name: 'Watering Can',   color: '#4aa3ff', proj: 'drop', img:'tower-can',
+    can:    { name: 'Watering Can',   short:'Can',     color: '#4aa3ff', proj: 'drop', img:'tower-can',
               tiers: [ {cost:60,  dmg:6,  range:90,  fireMs:600},
                        {cost:50,  dmg:11, range:102, fireMs:540},
                        {cost:90,  dmg:20, range:116, fireMs:480} ] },
-    zapper: { name: 'Bug Zapper',     color: '#ffe14a', proj: 'zap', img:'tower-zapper', aoe:34, slow:0.5, slowMs:900,
+    zapper: { name: 'Bug Zapper',     short:'Zapper',  color: '#ffe14a', proj: 'zap', img:'tower-zapper', aoe:34, slow:0.5, slowMs:900,
               tiers: [ {cost:90,  dmg:4,  range:88,  fireMs:1100},
                        {cost:80,  dmg:7,  range:98,  fireMs:1000},
                        {cost:130, dmg:12, range:108, fireMs:900} ] },
-    sprink: { name: 'Sprinkler',      color: '#4ad6c0', proj: 'splash', img:'tower-sprink', aoe:22,
+    sprink: { name: 'Sprinkler',      short:'Sprink',  color: '#4ad6c0', proj: 'splash', img:'tower-sprink', aoe:22,
               tiers: [ {cost:75,  dmg:3,  range:85,  fireMs:280},
                        {cost:70,  dmg:5,  range:94,  fireMs:250},
                        {cost:110, dmg:8,  range:104, fireMs:220} ] },
-    scare:  { name: 'Scarecrow Sling', color: '#c98a3a', proj: 'pebble', img:'tower-scare',
+    scare:  { name: 'Scarecrow Sling', short:'Scare',  color: '#c98a3a', proj: 'pebble', img:'tower-scare',
               tiers: [ {cost:120, dmg:22, range:140, fireMs:1400},
                        {cost:110, dmg:38, range:155, fireMs:1300},
                        {cost:170, dmg:64, range:170, fireMs:1200} ] },
+    // Beehive: fires a SWARM of homing bees that chase their target until they connect
+    // (guaranteed hit). bees = how many per volley; modest per-bee dmg. Great vs fast pests.
+    beehive:{ name: 'Beehive',        short:'Beehive', color: '#f2b705', proj: 'bee', img:'tower-beehive', bees: 2,
+              tiers: [ {cost:100, dmg:5,  range:95,  fireMs:900,  bees:2},
+                       {cost:90,  dmg:8,  range:105, fireMs:820,  bees:3},
+                       {cost:140, dmg:13, range:118, fireMs:740,  bees:3} ] },
   };
-  const TOWER_ORDER = ['can','zapper','sprink','scare'];
+  const TOWER_ORDER = ['can','zapper','sprink','scare','beehive'];
   const SELL_REFUND = 0.6; // fraction of total spent returned on sell
 
   // Pest types. hp/speed scale with wave elsewhere. hearts = cost if it leaks.
@@ -90,6 +96,10 @@
     beetle:{ name:'Beetle',      hp:52,  speed:24, bounty:12, hearts:2, color:'#2b3a8a', size:14, img:'pest-beetle', sprH:16 },
     lizard:{ name:'Lizard',      hp:11,  speed:82, bounty:6,  hearts:1, color:'#3a9d4a', size:12, img:'pest-lizard', sprH:14 },
     cat:   { name:'Caterpillar', hp:280, speed:20, bounty:60, hearts:5, color:'#b85ac0', size:20, img:'pest-cat',    sprH:24 },
+    // Splitter: on death it spawns 2 'aphidling' children (less HP, faster) just behind
+    // its death spot. Children don't re-split. Kill it early or get swarmed.
+    aphid: { name:'Aphid',       hp:40,  speed:34, bounty:14, hearts:2, color:'#9fd14a', size:15, sprH:16, splits:2, childType:'aphidling' },
+    aphidling:{ name:'Aphidling',hp:9,   speed:66, bounty:3,  hearts:1, color:'#c6e87a', size:9,  sprH:10 },
   };
 
   // Maps as data. path = ordered waypoints (internal px). plots = buildable centers.
@@ -535,11 +545,12 @@
   function mapDiff() { return (game && game.def && game.def.diff) || 1; }
 
   // HP grows per wave (steeper now) and scales by the map's difficulty; speed ramps a bit.
-  function scaledPest(type, n) {
+  // dist0 lets split children spawn partway along the path (at the parent's death spot).
+  function scaledPest(type, n, dist0) {
     const base = PESTS[type];
     const hp = Math.round(base.hp * Math.pow(1.20, n - 1) * mapDiff());
     const speed = base.speed * (1 + Math.min(0.75, (n - 1) * 0.026));
-    return { type, hp, maxHp: hp, dist: 0, speed, slowUntil: 0 };
+    return { type, hp, maxHp: hp, dist: dist0 || 0, speed, slowUntil: 0 };
   }
   // Composition: counts grow with n (and a little with map difficulty); types are
   // interleaved round-robin so the stream is mixed; boss appended every 5th wave.
@@ -550,10 +561,12 @@
       ant:    Math.round((3 + n) * bump),
       lizard: Math.floor(n * 0.85 * bump),
       beetle: Math.floor(n * 0.6  * bump),
+      // Splitters arrive mid-game (wave 4+) and grow slowly — each one becomes 3 bodies.
+      aphid:  n >= 4 ? Math.max(1, Math.round((n - 3) * 0.6 * bump)) : 0,
     };
-    const order = ['ant', 'lizard', 'beetle'];
+    const order = ['ant', 'lizard', 'beetle', 'aphid'];
     const list = [];
-    let remaining = counts.ant + counts.lizard + counts.beetle;
+    let remaining = counts.ant + counts.lizard + counts.beetle + counts.aphid;
     while (remaining > 0) {
       for (const t of order) {
         if (counts[t] > 0) { list.push(t); counts[t]--; remaining--; }
@@ -613,6 +626,16 @@
     game.cash += PESTS[p.type].bounty;
     const i = game.pests.indexOf(p);
     if (i >= 0) game.pests.splice(i, 1);
+    // Splitter: spawn children just BEHIND the death spot (so they don't skip ahead,
+    // and sit outside any AoE blast that just landed). Children never re-split.
+    const def = PESTS[p.type];
+    if (def.splits && def.childType) {
+      for (let k = 0; k < def.splits; k++) {
+        const back = 10 + k * 8;                 // stagger them slightly along the path
+        const d0 = Math.max(0, p.dist - back);
+        game.pests.push(scaledPest(def.childType, game.wave, d0));
+      }
+    }
   }
   function fireTowers(dt) {
     for (const t of game.towers) {
@@ -622,17 +645,52 @@
       const s = towerTierStats(t);
       const def = TOWERS[t.type];
       const pt = pointAt(game.path, target.dist);
-      game.projectiles.push({
-        x: t.x, y: t.y, tx: pt.x, ty: pt.y, target,
-        dmg: s.dmg, kind: def.proj, aoe: def.aoe || 0,
-        slow: def.slow || 0, slowMs: def.slowMs || 0, speed: 320,
-      });
+      if (def.proj === 'bee') {
+        // Beehive: launch a swarm of homing bees, fanned out from the hive. Each bee
+        // chases its target (re-acquiring if it dies) until it connects or times out.
+        const n = s.bees || def.bees || 2;
+        for (let b = 0; b < n; b++) {
+          const ang = Math.random() * Math.PI * 2, spread = 6 + Math.random() * 6;
+          game.projectiles.push({
+            x: t.x + Math.cos(ang) * spread, y: t.y + Math.sin(ang) * spread,
+            tx: pt.x, ty: pt.y, target, kind: 'bee',
+            dmg: s.dmg, aoe: 0, slow: 0, slowMs: 0,
+            speed: 170 + Math.random() * 40,     // slight speed variance → organic swarm
+            life: 2600,                          // ms before an orphaned bee gives up
+          });
+        }
+      } else {
+        game.projectiles.push({
+          x: t.x, y: t.y, tx: pt.x, ty: pt.y, target,
+          dmg: s.dmg, kind: def.proj, aoe: def.aoe || 0,
+          slow: def.slow || 0, slowMs: def.slowMs || 0, speed: 320,
+        });
+      }
       t.cooldown = s.fireMs;                    // start a fresh cooldown from the shot
     }
+  }
+  // Nearest living pest to a point — bees use this to re-acquire when their target dies.
+  function nearestPest(x, y) {
+    let best = null, bd = Infinity;
+    for (const p of game.pests) {
+      const pt = pointAt(game.path, p.dist);
+      const d = dist2(pt.x, pt.y, x, y);
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best;
   }
   function advanceProjectiles(dt) {
     const next = [];
     for (const pr of game.projectiles) {
+      // Bees: age out, and chase a fresh target if the current one is gone.
+      if (pr.kind === 'bee') {
+        pr.life -= dt;
+        if (pr.life <= 0) continue;                        // orphaned bee gives up
+        if (!pr.target || !game.pests.includes(pr.target)) {
+          pr.target = nearestPest(pr.x, pr.y);
+          if (!pr.target) { next.push(pr); continue; }     // nothing to chase — drift, keep flying
+        }
+      }
       if (pr.target && game.pests.includes(pr.target)) {
         const pt = pointAt(game.path, pr.target.dist); pr.tx = pt.x; pr.ty = pt.y;
       }
@@ -687,7 +745,9 @@
   }
 
   function hudHitRects() {
-    const barY = IH - 40, bw = 150, gap = 8, x0 = 8;
+    const barY = IH - 40, gap = 8, x0 = 8;
+    // Fit all tower buttons across the full width (shrinks as towers are added).
+    const bw = Math.floor((IW - x0*2 - gap*(TOWER_ORDER.length - 1)) / TOWER_ORDER.length);
     const towers = TOWER_ORDER.map((id, i) => ({ id, x: x0 + i*(bw+gap), y: barY, w: bw, h: 34 }));
     const startWave = { x: IW - 138, y: 26, w: 128, h: 26 };
     // Menu sits in the PLAYFIELD just below the top strip (top-left). The top ~22px strip
@@ -767,6 +827,27 @@
     ctx.fillRect(cx - gap/2 - bw, cy - h/2, bw, h);
     ctx.fillRect(cx + gap/2,      cy - h/2, bw, h);
   }
+  // Canvas-drawn beehive (no sprite): a stacked-dome skep with stripes + entrance hole.
+  function drawBeehive(cx, cy, scale) {
+    scale = scale || 1;
+    const w = 20 * scale, h = 18 * scale;
+    ctx.save();
+    ctx.translate(cx, cy);
+    // dome bands (bottom-up), light gold → darker gold
+    const bands = 4;
+    for (let i = 0; i < bands; i++) {
+      const by = h/2 - (i+1) * (h/bands);
+      const bw = w * (1 - i*0.16);
+      ctx.fillStyle = i % 2 ? '#e0a200' : '#f2b705';
+      ctx.beginPath();
+      ctx.ellipse(0, by + (h/bands)/2, bw/2, (h/bands)/2 + 1, 0, 0, Math.PI*2);
+      ctx.fill();
+    }
+    // entrance hole
+    ctx.fillStyle = '#5a3d00';
+    ctx.beginPath(); ctx.ellipse(0, h/2 - h/bands*0.5, 2.2*scale, 2.6*scale, 0, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
 
   function drawHUD() {
     const hud = hudHitRects();
@@ -836,13 +917,19 @@
         ctx.globalAlpha = affordable ? 1 : 0.4;
         ctx.drawImage(im, tb.x + 4, tb.y + 5);   // 24x24 sprite
         ctx.globalAlpha = 1;
+      } else if (id === 'beehive') {              // canvas-drawn beehive icon
+        ctx.globalAlpha = affordable ? 1 : 0.4;
+        drawBeehive(tb.x + 16, tb.y + 17, 0.9);
+        ctx.globalAlpha = 1;
       } else {                                    // fallback color box if sprite missing
         ctx.fillStyle = affordable ? TOWERS[id].color : '#777';
         ctx.fillRect(tb.x + 4, tb.y + 7, 20, 20);
       }
       ctx.fillStyle = affordable ? '#fff' : '#999';
-      ctx.fillText(TOWERS[id].name, tb.x + 34, tb.y + 12);
-      ctx.fillText('$' + cost, tb.x + 34, tb.y + 25);
+      ctx.font = '10px monospace';
+      ctx.fillText(TOWERS[id].short || TOWERS[id].name, tb.x + 32, tb.y + 12);
+      ctx.fillText('$' + cost, tb.x + 32, tb.y + 25);
+      ctx.font = '12px monospace';
     });
 
     // Start Wave button when idle, with the auto-start countdown
@@ -1054,8 +1141,19 @@
         drawH = im.height;
         ctx.drawImage(im, frame*fw, 0, fw, im.height, Math.round(pt.x - fw/2), Math.round(pt.y - im.height/2), fw, im.height);
       } else {
+        // No sprite (aphids): draw a little rounded body with a darker rim + top highlight,
+        // plus two tiny antennae so it reads as a bug, not a plain dot.
+        const r = def.size / 2;
+        const wob = Math.sin(p.dist / 5) * 1.2;          // subtle waddle
+        ctx.fillStyle = 'rgba(0,0,0,0.18)';              // ground shadow
+        ctx.beginPath(); ctx.ellipse(pt.x, pt.y + r*0.7, r*0.95, r*0.4, 0, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(pt.x - r*0.3, pt.y - r); ctx.lineTo(pt.x - r*0.6, pt.y - r*1.5); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(pt.x + r*0.3, pt.y - r); ctx.lineTo(pt.x + r*0.6, pt.y - r*1.5); ctx.stroke();
         ctx.fillStyle = def.color;
-        ctx.beginPath(); ctx.arc(pt.x, pt.y, def.size/2, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(pt.x + wob, pt.y, r, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';        // top-left highlight
+        ctx.beginPath(); ctx.arc(pt.x + wob - r*0.3, pt.y - r*0.3, r*0.35, 0, Math.PI*2); ctx.fill();
       }
       // health bar — thin, above the pest, only once it has taken damage
       if (p.hp < p.maxHp) {
@@ -1078,6 +1176,14 @@
             ctx.fillRect(t.x - 6 + i*6, t.y + 11, 4, 4);
           }
         }
+      } else if (t.type === 'beehive') {
+        drawBeehive(t.x, t.y, 1 + t.tier * 0.12);
+        if (t.tier > 0) {
+          for (let i = 0; i < t.tier; i++) {
+            ctx.fillStyle = '#ffe14a';
+            ctx.fillRect(t.x - 6 + i*6, t.y + 11, 4, 4);
+          }
+        }
       } else {
         ctx.fillStyle = TOWERS[t.type].color;
         const s = 18 + t.tier * 2;
@@ -1085,8 +1191,19 @@
       }
     }
     for (const pr of game.projectiles) {
-      ctx.fillStyle = '#fff';
-      ctx.beginPath(); ctx.arc(pr.x, pr.y, 3, 0, Math.PI*2); ctx.fill();
+      if (pr.kind === 'bee') {
+        // little buzzing bee: yellow body + dark stripe + faint wing flicker
+        const bw = (Math.floor(game.elapsed / 40) % 2) ? 1 : -1;  // wing-beat flicker
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.beginPath(); ctx.ellipse(pr.x, pr.y - 1, 3, 1.5, 0, 0, Math.PI*2); ctx.fill(); // wings
+        ctx.fillStyle = '#f2b705';
+        ctx.beginPath(); ctx.arc(pr.x, pr.y, 2.4, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#3a2a00';
+        ctx.fillRect(pr.x - 0.6 + bw*0.3, pr.y - 2.4, 1.2, 4.8);   // stripe
+      } else {
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(pr.x, pr.y, 3, 0, Math.PI*2); ctx.fill();
+      }
     }
     // selected (placed) tower's range ring
     if (game.selectedTower) {
@@ -1107,6 +1224,8 @@
         ctx.globalAlpha = 0.55;
         ctx.drawImage(im, Math.round(g.x - im.width/2), Math.round(g.y - im.height/2 - 2));
         ctx.globalAlpha = 1;
+      } else if (type === 'beehive') {
+        ctx.globalAlpha = 0.6; drawBeehive(g.x, g.y, 1); ctx.globalAlpha = 1;
       }
       ctx.fillStyle = tint;
       ctx.beginPath(); ctx.arc(g.x, g.y, 3, 0, Math.PI*2); ctx.fill();  // center dot
