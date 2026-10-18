@@ -8,9 +8,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Garden Guard">
+<meta name="apple-mobile-web-app-title" content="Garden Defense">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<title>Garden Guard</title>
+<title>Garden Defense</title>
 <link rel="manifest" href="./manifest.json">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -45,14 +45,14 @@
 <body>
 <div id="stage">
   <canvas id="game" width="640" height="360"></canvas>
-  <div id="mapSelect" class="overlay"><h1>Garden Guard</h1></div>
+  <div id="mapSelect" class="overlay"><h1>Garden Defense</h1></div>
   <div id="gameOver" class="overlay hidden"></div>
 </div>
 <script>
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const IW = 640, IH = 360; // internal resolution (landscape 16:9)
-  const VERSION = 'v22';    // bump alongside CACHE_NAME in sw.js on each release
+  const VERSION = 'v23';    // bump alongside CACHE_NAME in sw.js on each release
 
   const START_CASH = 200;
   const START_HEARTS = 20;
@@ -199,9 +199,42 @@
   }
   function dist2(ax, ay, bx, by) { const dx=ax-bx, dy=ay-by; return dx*dx+dy*dy; }
 
+  // ---- Free-placement geometry ----
+  const PATH_HALF_W = 13;        // path stroke is 26px wide → 13px half-width
+  const TOWER_R = 12;            // tower footprint radius (for spacing + path clearance)
+  const PATH_CLEAR = PATH_HALF_W + TOWER_R - 2;  // min center-to-path distance to place
+  const TOWER_GAP = TOWER_R * 2 - 2;             // min center-to-center between towers
+
+  // Shortest distance from point (px,py) to a line segment a→b.
+  function distToSeg(px, py, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len2 = dx*dx + dy*dy;
+    let t = len2 ? ((px - a.x) * dx + (py - a.y) * dy) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (a.x + t*dx), py - (a.y + t*dy));
+  }
+  // Shortest distance from a point to the whole path polyline.
+  function distToPath(px, py) {
+    let best = Infinity;
+    for (const s of game.path.segs) best = Math.min(best, distToSeg(px, py, s.a, s.b));
+    return best;
+  }
+  // Can a tower be placed centered at (x,y)? Checks bounds, path clearance,
+  // tower spacing. (Future obstacles: add their checks here.)
+  function canPlace(x, y, ignoreTower) {
+    if (x < TOWER_R || x > IW - TOWER_R) return false;      // playfield bounds (x)
+    if (y < 24 + TOWER_R || y > IH - 40 - TOWER_R) return false; // clear HUD top strip + tower bar
+    if (distToPath(x, y) < PATH_CLEAR) return false;        // off the path
+    for (const t of game.towers) {                          // not overlapping another tower
+      if (t === ignoreTower) continue;
+      if (dist2(x, y, t.x, t.y) < TOWER_GAP*TOWER_GAP) return false;
+    }
+    return true;
+  }
+
   // ---- Terrain / path renderer ----
 
-  function drawTerrain(path, plots) {
+  function drawTerrain(path) {
     ctx.fillStyle = '#6ab04c';
     ctx.fillRect(0, 0, IW, IH);
     // dirt path
@@ -219,14 +252,6 @@
       ctx.fillStyle = '#2e7d32';
       ctx.fillRect(goal.x - 24, goal.y - 24, 36, 48);
     }
-    // plots — empty plots stand out; occupied ones fade so the tower reads clearly
-    ctx.lineWidth = 2;
-    plots.forEach(pl => {
-      const occupied = pl.tower;
-      ctx.fillStyle = occupied ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.18)';
-      ctx.strokeStyle = occupied ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.5)';
-      ctx.beginPath(); ctx.arc(pl.x, pl.y, 12, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-    });
   }
 
   // ---- Runtime state ----
@@ -239,7 +264,7 @@
     game = {
       mapId, def,
       path: buildPath(def.path),
-      plots: def.plots.map(p => ({ x:p.x, y:p.y, tower:null })),
+      towers: [],       // free-placed {type, tier, x, y, cooldown}
       cash: START_CASH,
       hearts: START_HEARTS,
       wave: 0,
@@ -250,7 +275,8 @@
       elapsed: 0,       // ms since wave start, for spawn scheduling
       countdown: null,  // ms until the next wave auto-starts (null = no countdown running)
       selectedTowerType: null, // bottom-bar selection for placement
-      selectedPlot: null,      // plot whose popup is open
+      selectedTower: null,     // placed tower whose popup is open
+      ghost: null,             // {x,y} preview position while a tower type is selected
       paused: false,    // player-toggled freeze
       speed: 1,         // sim speed multiplier (1 or 2)
     };
@@ -297,10 +323,10 @@
       o.start(); o.stop(actx.currentTime + ms/1000);
     } catch (e) {}
   }
-  function placeTower(plot, type) {
-    if (plot.tower || game.cash < towerBuyCost(type)) return false;
+  function placeTower(x, y, type) {
+    if (game.cash < towerBuyCost(type) || !canPlace(x, y)) return false;
     game.cash -= towerBuyCost(type);
-    plot.tower = { type, tier: 0, x: plot.x, y: plot.y, cooldown: 0 };
+    game.towers.push({ type, tier: 0, x, y, cooldown: 0 });
     blip(660, 60);
     return true;
   }
@@ -309,10 +335,11 @@
     if (cost == null || game.cash < cost) return false;
     game.cash -= cost; t.tier += 1; blip(880, 80); return true;
   }
-  function sellTower(plot) {
-    if (!plot.tower) return;
-    game.cash += sellRefund(plot.tower);
-    plot.tower = null;
+  function sellTower(t) {
+    const i = game.towers.indexOf(t);
+    if (i < 0) return;
+    game.cash += sellRefund(t);
+    game.towers.splice(i, 1);
   }
 
   // ---- Fixed-timestep loop ----
@@ -408,8 +435,7 @@
     if (i >= 0) game.pests.splice(i, 1);
   }
   function fireTowers(dt) {
-    for (const plot of game.plots) {
-      const t = plot.tower; if (!t) continue;
+    for (const t of game.towers) {
       if (t.cooldown > 0) t.cooldown -= dt;   // tick toward ready; never below 0 (no negative debt)
       if (t.cooldown > 0) continue;            // still cooling down
       const target = pickTarget(t); if (!target) continue; // ready, but no one to shoot — hold fire, stay at 0
@@ -648,14 +674,14 @@
   }
   function inRect(p, r) { return p.x>=r.x && p.x<=r.x+r.w && p.y>=r.y && p.y<=r.y+r.h; }
 
-  function popupHitRects(plot) {
+  function popupHitRects(tw) {
     const w = 140, h = 96;
     // Prefer placing to the right of the tower; flip left if it'd run off the edge.
-    let x = plot.x + 16;
-    if (x + w > IW - 4) x = plot.x - 16 - w;
+    let x = tw.x + 16;
+    if (x + w > IW - 4) x = tw.x - 16 - w;
     x = Math.max(4, Math.min(IW - w - 4, x));
     const barTop = IH - 40;                          // tower bar top (matches hudHitRects)
-    const y = Math.min(barTop - h - 4, Math.max(24, plot.y - h/2));
+    const y = Math.min(barTop - h - 4, Math.max(24, tw.y - h/2));
     const bw = (w - 18) / 2;                          // two side-by-side buttons
     return {
       box:    { x, y, w, h },
@@ -664,8 +690,8 @@
     };
   }
   function drawPopup() {
-    if (!game.selectedPlot || !game.selectedPlot.tower) return;
-    const t = game.selectedPlot.tower, r = popupHitRects(game.selectedPlot), b = r.box;
+    if (!game.selectedTower) return;
+    const t = game.selectedTower, r = popupHitRects(t), b = r.box;
     const def = TOWERS[t.type], s = towerTierStats(t);
     const rate = 1000 / s.fireMs;
 
@@ -724,31 +750,36 @@
     for (const tb of hud.towers) {
       if (inRect(p, tb)) {
         game.selectedTowerType = (game.selectedTowerType === tb.id) ? null : tb.id;
-        game.selectedPlot = null;
+        game.selectedTower = null;
+        game.ghost = null;
         return;
       }
     }
     // (b) open popup's Upgrade/Sell buttons
-    if (game.selectedPlot && game.selectedPlot.tower) {
-      const pop = popupHitRects(game.selectedPlot);
-      if (inRect(p, pop.upgrade)) { upgradeTower(game.selectedPlot.tower); return; }
-      if (inRect(p, pop.sell))    { sellTower(game.selectedPlot); game.selectedPlot = null; return; }
+    if (game.selectedTower) {
+      const pop = popupHitRects(game.selectedTower);
+      if (inRect(p, pop.upgrade)) { upgradeTower(game.selectedTower); return; }
+      if (inRect(p, pop.sell))    { sellTower(game.selectedTower); game.selectedTower = null; return; }
     }
-    // (c) plots: place selected tower on empty plot, or open popup on occupied plot
-    let hitPlot = null, bestD = 22*22;
-    for (const plot of game.plots) {
-      const d = dist2(p.x, p.y, plot.x, plot.y);
-      if (d < bestD) { bestD = d; hitPlot = plot; }
-    }
-    if (hitPlot) {
-      if (hitPlot.tower) { game.selectedPlot = hitPlot; game.selectedTowerType = null; }
-      else if (game.selectedTowerType) {
-        if (placeTower(hitPlot, game.selectedTowerType)) game.selectedTowerType = null;
+    // (c) placing a new tower: ghost to the tap point, place if valid+affordable
+    if (game.selectedTowerType) {
+      game.ghost = { x: p.x, y: p.y };
+      if (placeTower(p.x, p.y, game.selectedTowerType)) {
+        game.selectedTowerType = null; game.ghost = null; // placed — exit placement mode
+      } else {
+        blip(180, 90, 'sine');  // can't place here / can't afford — soft reject
       }
       return;
     }
-    // (d) empty space clears selection/popup
-    game.selectedPlot = null; game.selectedTowerType = null;
+    // (d) tapped an existing tower? open its popup
+    let hitTower = null, bestD = TOWER_R*TOWER_R;
+    for (const t of game.towers) {
+      const d = dist2(p.x, p.y, t.x, t.y);
+      if (d < bestD) { bestD = d; hitTower = t; }
+    }
+    if (hitTower) { game.selectedTower = hitTower; return; }
+    // (e) empty space clears selection/popup
+    game.selectedTower = null; game.selectedTowerType = null; game.ghost = null;
   }
   canvas.addEventListener('click', onTap);
   canvas.addEventListener('touchstart', onTap, { passive: false });
@@ -761,7 +792,7 @@
       ctx.fillRect(0, 0, IW, IH);
       return;
     }
-    drawTerrain(game.path, game.plots);
+    drawTerrain(game.path);
     for (const p of game.pests) {
       const def = PESTS[p.type];
       const pt = pointAt(game.path, p.dist);
@@ -787,31 +818,48 @@
         ctx.fillRect(bx, by, Math.round(bw * frac), 3);
       }
     }
-    for (const plot of game.plots) {
-      const t = plot.tower; if (!t) continue;
+    for (const t of game.towers) {
       const im = IMG[TOWERS[t.type].img];
       if (im && im.width) {
-        ctx.drawImage(im, Math.round(plot.x - im.width/2), Math.round(plot.y - im.height/2 - 2));
+        ctx.drawImage(im, Math.round(t.x - im.width/2), Math.round(t.y - im.height/2 - 2));
         if (t.tier > 0) {                              // tier pips below the tower
           for (let i = 0; i < t.tier; i++) {
             ctx.fillStyle = '#ffe14a';
-            ctx.fillRect(plot.x - 6 + i*6, plot.y + 11, 4, 4);
+            ctx.fillRect(t.x - 6 + i*6, t.y + 11, 4, 4);
           }
         }
       } else {
         ctx.fillStyle = TOWERS[t.type].color;
         const s = 18 + t.tier * 2;
-        ctx.fillRect(plot.x - s/2, plot.y - s/2, s, s);
+        ctx.fillRect(t.x - s/2, t.y - s/2, s, s);
       }
     }
     for (const pr of game.projectiles) {
       ctx.fillStyle = '#fff';
       ctx.beginPath(); ctx.arc(pr.x, pr.y, 3, 0, Math.PI*2); ctx.fill();
     }
-    if (game.selectedPlot && game.selectedPlot.tower) {
-      const t = game.selectedPlot.tower, s = towerTierStats(t);
+    // selected (placed) tower's range ring
+    if (game.selectedTower) {
+      const t = game.selectedTower, s = towerTierStats(t);
       ctx.strokeStyle = 'rgba(255,255,255,0.5)';
       ctx.beginPath(); ctx.arc(t.x, t.y, s.range, 0, Math.PI*2); ctx.stroke();
+    }
+    // placement ghost: translucent tower + range ring, green=valid / red=blocked
+    if (game.selectedTowerType && game.ghost) {
+      const g = game.ghost, type = game.selectedTowerType;
+      const ok = canPlace(g.x, g.y) && game.cash >= towerBuyCost(type);
+      const tint = ok ? 'rgba(90,209,90,0.9)' : 'rgba(232,80,58,0.9)';
+      const s0 = TOWERS[type].tiers[0];
+      ctx.strokeStyle = tint; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(g.x, g.y, s0.range, 0, Math.PI*2); ctx.stroke();
+      const im = IMG[TOWERS[type].img];
+      if (im && im.width) {
+        ctx.globalAlpha = 0.55;
+        ctx.drawImage(im, Math.round(g.x - im.width/2), Math.round(g.y - im.height/2 - 2));
+        ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = tint;
+      ctx.beginPath(); ctx.arc(g.x, g.y, 3, 0, Math.PI*2); ctx.fill();  // center dot
     }
     drawHUD();
     drawShopStats();
@@ -820,7 +868,7 @@
 
   function renderMapSelect() {
     const el = document.getElementById('mapSelect');
-    el.innerHTML = '<h1 style="font-size:28px;margin-bottom:6px">Garden Guard</h1>' +
+    el.innerHTML = '<h1 style="font-size:28px;margin-bottom:6px">Garden Defense</h1>' +
       '<p style="opacity:.8;margin-bottom:14px">Defend the veggie patch!</p>' +
       '<div id="mapCards" style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center"></div>';
     const cards = el.querySelector('#mapCards');
@@ -839,6 +887,8 @@
       if (unlocked) card.onclick = () => startMap(m.id);
       cards.appendChild(card);
     });
+    el.insertAdjacentHTML('beforeend',
+      '<div style="margin-top:16px;font-size:11px;opacity:.4;font-family:monospace">' + VERSION + '</div>');
     el.classList.remove('hidden');
   }
   function prevMapName(mapId) {

@@ -1,6 +1,6 @@
 {
-  "name": "Garden Guard",
-  "short_name": "GardenGuard",
+  "name": "Garden Defense",
+  "short_name": "GardenDefense",
   "description": "Defend your veggie patch! A cute pixel-art tower defense game.",
   "start_url": "./index.html",
   "display": "standalone",
