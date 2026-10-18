@@ -250,6 +250,8 @@
       countdown: null,  // ms until the next wave auto-starts (null = no countdown running)
       selectedTowerType: null, // bottom-bar selection for placement
       selectedPlot: null,      // plot whose popup is open
+      paused: false,    // player-toggled freeze
+      speed: 1,         // sim speed multiplier (1 or 2)
     };
   }
   // Arm the pre-wave countdown (on map start and after each wave clears).
@@ -320,8 +322,10 @@
     if (!last) last = ts;
     let delta = ts - last; last = ts;
     if (delta > 250) delta = 250; // avoid spiral after tab-away
-    acc += delta;
-    while (acc >= STEP) { if (screen === 'playing') update(STEP); acc -= STEP; }
+    // Pause freezes the sim; speed (1x/2x) scales how much sim-time each real frame advances.
+    const running = screen === 'playing' && game && !game.paused;
+    acc += running ? delta * game.speed : 0;
+    while (acc >= STEP) { if (running) update(STEP); acc -= STEP; }
     render();
     requestAnimationFrame(frame);
   }
@@ -484,7 +488,10 @@
     // button up there is unreachable — keep it below y26 where taps actually register.
     const menu = { x: 8, y: 26, w: 76, h: 26 };
     const menuHit = { x: 4, y: 24, w: 86, h: 32 };   // small forgiving margin
-    return { towers, startWave, menu, menuHit };
+    // Pause + speed sit to the right of Menu, same tappable row.
+    const pause = { x: 92,  y: 26, w: 40, h: 26 };
+    const speed = { x: 136, y: 26, w: 40, h: 26 };
+    return { towers, startWave, menu, menuHit, pause, speed };
   }
 
   // Max tier-0 stat values across all towers, for normalizing the shop bars (0..1).
@@ -540,6 +547,26 @@
     ctx.fillRect(mb.x, mb.y, mb.w, mb.h);
     ctx.fillStyle = '#fff'; ctx.font = '12px monospace';
     ctx.fillText('☰ Menu', mb.x + 9, mb.y + mb.h/2);
+
+    // Pause / resume toggle
+    const pb = hud.pause;
+    ctx.fillStyle = game.paused ? '#b5532e' : '#2e7d32';
+    ctx.fillRect(pb.x, pb.y, pb.w, pb.h);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(game.paused ? '▶' : '⏸', pb.x + pb.w/2 - 4, pb.y + pb.h/2);
+
+    // Speed toggle (1x / 2x)
+    const sb = hud.speed;
+    ctx.fillStyle = game.speed === 2 ? '#c49a1f' : '#2e7d32';
+    ctx.fillRect(sb.x, sb.y, sb.w, sb.h);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(game.speed + 'x', sb.x + sb.w/2 - 8, sb.y + sb.h/2);
+
+    // small "PAUSED" label beside the speed button (game stays interactive)
+    if (game.paused) {
+      ctx.fillStyle = '#fff';
+      ctx.fillText('⏸ PAUSED', sb.x + sb.w + 10, sb.y + sb.h/2);
+    }
 
     // bottom tower bar
     hud.towers.forEach(tb => {
@@ -664,8 +691,10 @@
     const p = canvasPoint(evt);
     const hud = hudHitRects();
 
-    // (a) HUD: Menu (back to map select), Start Wave, tower bar selection
+    // (a) HUD: Menu (back to map select), Pause, Speed, Start Wave, tower bar selection
     if (inRect(p, hud.menuHit)) { showMapSelect(); return; }
+    if (inRect(p, hud.pause))   { game.paused = !game.paused; return; }
+    if (inRect(p, hud.speed))   { game.speed = game.speed === 2 ? 1 : 2; return; }
     if (!game.waveActive && inRect(p, hud.startWave)) { startWave(); return; }
     for (const tb of hud.towers) {
       if (inRect(p, tb)) {
