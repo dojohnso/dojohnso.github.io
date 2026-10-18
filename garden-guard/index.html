@@ -530,6 +530,23 @@
     });
   }
 
+  // Crisp canvas-drawn icons (iOS renders ▶/⏸ unicode as full-color emoji — avoid those).
+  // All draw in the current ctx.fillStyle; (cx,cy) is the icon center, s the box size.
+  function drawPlayIcon(cx, cy, s) {
+    const h = s, w = s * 0.85;
+    ctx.beginPath();
+    ctx.moveTo(cx - w/2, cy - h/2);
+    ctx.lineTo(cx + w/2, cy);
+    ctx.lineTo(cx - w/2, cy + h/2);
+    ctx.closePath();
+    ctx.fill();
+  }
+  function drawPauseIcon(cx, cy, s) {
+    const bw = s * 0.28, gap = s * 0.22, h = s;
+    ctx.fillRect(cx - gap/2 - bw, cy - h/2, bw, h);
+    ctx.fillRect(cx + gap/2,      cy - h/2, bw, h);
+  }
+
   function drawHUD() {
     const hud = hudHitRects();
     // top strip
@@ -553,7 +570,8 @@
     ctx.fillStyle = game.paused ? '#b5532e' : '#2e7d32';
     ctx.fillRect(pb.x, pb.y, pb.w, pb.h);
     ctx.fillStyle = '#fff';
-    ctx.fillText(game.paused ? '▶' : '⏸', pb.x + pb.w/2 - 4, pb.y + pb.h/2);
+    if (game.paused) drawPlayIcon(pb.x + pb.w/2, pb.y + pb.h/2, 11);
+    else             drawPauseIcon(pb.x + pb.w/2, pb.y + pb.h/2, 11);
 
     // Speed toggle (1x / 2x)
     const sb = hud.speed;
@@ -565,7 +583,8 @@
     // small "PAUSED" label beside the speed button (game stays interactive)
     if (game.paused) {
       ctx.fillStyle = '#fff';
-      ctx.fillText('⏸ PAUSED', sb.x + sb.w + 10, sb.y + sb.h/2);
+      drawPauseIcon(sb.x + sb.w + 15, sb.y + sb.h/2, 10);
+      ctx.fillText('PAUSED', sb.x + sb.w + 24, sb.y + sb.h/2);
     }
 
     // bottom tower bar
@@ -607,8 +626,9 @@
         ctx.fillRect(b.x, b.y, b.w * frac, b.h);
       }
       ctx.fillStyle = '#fff';
-      const label = secs != null ? ('▶ Start  ' + secs + 's') : '▶ Start Wave';
-      ctx.fillText(label, b.x + 8, b.y + 13);
+      drawPlayIcon(b.x + 13, b.y + b.h/2, 9);
+      const label = secs != null ? ('Start  ' + secs + 's') : 'Start Wave';
+      ctx.fillText(label, b.x + 22, b.y + b.h/2);
     }
   }
 
