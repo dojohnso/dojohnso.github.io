@@ -52,6 +52,7 @@
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const IW = 640, IH = 360; // internal resolution (landscape 16:9)
+  const VERSION = 'v22';    // bump alongside CACHE_NAME in sw.js on each release
 
   const START_CASH = 200;
   const START_HEARTS = 20;
@@ -557,6 +558,10 @@
     ctx.fillText('$ ' + game.cash, 90, 11);
     ctx.fillText('Wave ' + game.wave, 180, 11);
     if (game.def) ctx.fillText(game.def.name, 290, 11);
+    // version tag, right-aligned in the header
+    ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText(VERSION, IW - 8, 11);
+    ctx.textAlign = 'left'; ctx.fillStyle = '#fff';
 
     // Menu button (return to map select) — in the playfield just below the top strip
     const mb = hud.menu;
