@@ -52,7 +52,7 @@
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const IW = 640, IH = 360; // internal resolution (landscape 16:9)
-  const VERSION = 'v24';    // bump alongside CACHE_NAME in sw.js on each release
+  const VERSION = 'v25';    // bump alongside CACHE_NAME in sw.js on each release
 
   const START_CASH = 200;
   const START_HEARTS = 20;
@@ -279,7 +279,32 @@
       ghost: null,             // {x,y} preview position while a tower type is selected
       paused: false,    // player-toggled freeze
       speed: 1,         // sim speed multiplier (1 or 2)
+      wavePicker: null, // when open: the target wave being chosen in the jump picker
+      pausedBeforePicker: false, // pause state to restore when the picker closes
     };
+  }
+  // Estimated cash a decent player would hold ARRIVING at the start of wave N
+  // (i.e. having cleared N-1 waves). Calibrated to a real-run trajectory + a touch generous.
+  function estCashForWave(N) {
+    let c = START_CASH;
+    for (let w = 1; w < N; w++) c += 70 + 16 * w;
+    return c;
+  }
+  // Close the picker, restoring the pause state it had before opening.
+  function closeWavePicker() {
+    if (!game) return;
+    game.wavePicker = null;
+    game.paused = !!game.pausedBeforePicker;
+  }
+  // Jump straight to wave N: clean (full hearts), granting the estimated cash.
+  function jumpToWave(N) {
+    if (!game || game.waveActive) return;        // only between waves
+    N = Math.max(1, Math.round(N));
+    game.wave = N - 1;                            // startWave() increments to N
+    game.cash = estCashForWave(N);
+    game.countdown = null;                        // player decides when to start
+    blip(880, 100);
+    closeWavePicker();
   }
   // Arm the pre-wave countdown (on map start and after each wave clears).
   function armCountdown() { if (game) game.countdown = WAVE_COUNTDOWN_MS; }
@@ -527,7 +552,20 @@
     // Pause + speed sit to the right of Menu, same tappable row.
     const pause = { x: 92,  y: 26, w: 40, h: 26 };
     const speed = { x: 136, y: 26, w: 40, h: 26 };
-    return { towers, startWave, menu, menuHit, pause, speed };
+    // "Wave N" label tap target — extends down past the iOS dead top strip so it registers.
+    const waveLabel = { x: 176, y: 0, w: 96, h: 52 };
+    return { towers, startWave, menu, menuHit, pause, speed, waveLabel };
+  }
+
+  // Centered wave-jump picker: − [N] + and a Jump button. Only used while open.
+  function wavePickerRects() {
+    const w = 220, h = 96, x = (IW - w) / 2, y = 70;
+    return {
+      box:   { x, y, w, h },
+      minus: { x: x + 16,       y: y + 30, w: 40, h: 32 },
+      plus:  { x: x + w - 56,   y: y + 30, w: 40, h: 32 },
+      jump:  { x: x + 40,       y: y + h - 26, w: w - 80, h: 20 },
+    };
   }
 
   // Max tier-0 stat values across all towers, for normalizing the shop bars (0..1).
@@ -745,22 +783,44 @@
     ctx.fillText('$ ' + sellRefund(t), r.sell.x + 6, r.sell.y + 11);
   }
 
-  function onTap(evt) {
+  let dragging = false;  // true while press-and-dragging a ghost into place
+
+  // Pointer DOWN: handle UI, or begin placing/selecting on the field.
+  function onDown(evt) {
     evt.preventDefault();
     if (screen !== 'playing') return;   // map select & game over use DOM overlays
     const p = canvasPoint(evt);
     const hud = hudHitRects();
+    dragging = false;
 
-    // (a) HUD: Menu (back to map select), Pause, Speed, Start Wave, tower bar selection
+    // (0) wave-jump picker is modal: handle its buttons, dismiss on outside tap
+    if (game.wavePicker != null) {
+      const pk = wavePickerRects();
+      if (inRect(p, pk.minus)) { game.wavePicker = Math.max(1, game.wavePicker - 1); return; }
+      if (inRect(p, pk.plus))  { game.wavePicker = game.wavePicker + 1; return; }
+      if (inRect(p, pk.jump))  { jumpToWave(game.wavePicker); return; }
+      closeWavePicker();       // tapped outside → cancel
+      return;
+    }
+
+    // (a) HUD buttons
     if (inRect(p, hud.menuHit)) { showMapSelect(); return; }
     if (inRect(p, hud.pause))   { game.paused = !game.paused; return; }
     if (inRect(p, hud.speed))   { game.speed = game.speed === 2 ? 1 : 2; return; }
+    // "Wave N" label → open the jump picker (pauses while choosing)
+    if (inRect(p, hud.waveLabel)) {
+      if (!game.waveActive) {
+        game.wavePicker = Math.max(1, game.wave + 1);
+        game.pausedBeforePicker = game.paused;  // remember, so we don't un-pause a manual pause
+        game.paused = true;
+      }
+      return;
+    }
     if (!game.waveActive && inRect(p, hud.startWave)) { startWave(); return; }
     for (const tb of hud.towers) {
       if (inRect(p, tb)) {
         game.selectedTowerType = (game.selectedTowerType === tb.id) ? null : tb.id;
-        game.selectedTower = null;
-        game.ghost = null;
+        game.selectedTower = null; game.ghost = null;
         return;
       }
     }
@@ -770,17 +830,13 @@
       if (inRect(p, pop.upgrade)) { upgradeTower(game.selectedTower); return; }
       if (inRect(p, pop.sell))    { sellTower(game.selectedTower); game.selectedTower = null; return; }
     }
-    // (c) placing a new tower: ghost to the tap point, place if valid+affordable
+    // (c) a tower type is armed → begin a drag: ghost follows the pointer, placed on release
     if (game.selectedTowerType) {
+      dragging = true;
       game.ghost = { x: p.x, y: p.y };
-      if (placeTower(p.x, p.y, game.selectedTowerType)) {
-        game.selectedTowerType = null; game.ghost = null; // placed — exit placement mode
-      } else {
-        blip(180, 90, 'sine');  // can't place here / can't afford — soft reject
-      }
       return;
     }
-    // (d) tapped an existing tower? open its popup
+    // (d) tapped an existing tower → open its popup
     let hitTower = null, bestD = TOWER_R*TOWER_R;
     for (const t of game.towers) {
       const d = dist2(p.x, p.y, t.x, t.y);
@@ -788,10 +844,38 @@
     }
     if (hitTower) { game.selectedTower = hitTower; return; }
     // (e) empty space clears selection/popup
-    game.selectedTower = null; game.selectedTowerType = null; game.ghost = null;
+    game.selectedTower = null; game.ghost = null;
   }
-  canvas.addEventListener('click', onTap);
-  canvas.addEventListener('touchstart', onTap, { passive: false });
+
+  // Pointer MOVE: while dragging, the ghost follows (render shows live validity).
+  function onMove(evt) {
+    if (!dragging || !game || !game.selectedTowerType) return;
+    evt.preventDefault();
+    const p = canvasPoint(evt);
+    game.ghost = { x: p.x, y: p.y };
+  }
+
+  // Pointer UP: drop the tower at the ghost position (place if valid+affordable).
+  function onUp(evt) {
+    if (!dragging) return;
+    evt.preventDefault();
+    dragging = false;
+    if (!game || !game.selectedTowerType || !game.ghost) return;
+    const g = game.ghost;
+    if (placeTower(g.x, g.y, game.selectedTowerType)) {
+      game.selectedTowerType = null;  // placed — disarm
+    } else {
+      blip(180, 90, 'sine');   // invalid spot / can't afford — soft reject, stay armed
+    }
+    game.ghost = null;  // clear the preview on release either way
+  }
+
+  canvas.addEventListener('mousedown', onDown);
+  canvas.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);   // catch release even outside the canvas
+  canvas.addEventListener('touchstart', onDown, { passive: false });
+  canvas.addEventListener('touchmove',  onMove, { passive: false });
+  canvas.addEventListener('touchend',   onUp,   { passive: false });
 
   function render() {
     if (screen !== 'playing' || !game) {
@@ -873,6 +957,35 @@
     drawHUD();
     drawShopStats();
     drawPopup();
+    drawWavePicker();
+  }
+
+  function drawWavePicker() {
+    if (!game || game.wavePicker == null) return;
+    const N = game.wavePicker, r = wavePickerRects(), b = r.box;
+    // dim the field behind so it reads as a modal
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(0, 22, IW, IH - 22);
+    ctx.fillStyle = 'rgba(0,0,0,0.9)'; ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.strokeStyle = '#2e7d32'; ctx.lineWidth = 2; ctx.strokeRect(b.x+1, b.y+1, b.w-2, b.h-2);
+    ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    ctx.font = '12px monospace';
+    ctx.fillText('Jump to wave', b.x + b.w/2, b.y + 14);
+    // − button
+    ctx.fillStyle = '#444'; ctx.fillRect(r.minus.x, r.minus.y, r.minus.w, r.minus.h);
+    ctx.fillStyle = '#fff'; ctx.font = '20px monospace';
+    ctx.fillText('−', r.minus.x + r.minus.w/2, r.minus.y + r.minus.h/2);
+    // the big number
+    ctx.font = '26px monospace';
+    ctx.fillText(N, b.x + b.w/2, r.minus.y + r.minus.h/2);
+    // + button
+    ctx.fillStyle = '#444'; ctx.fillRect(r.plus.x, r.plus.y, r.plus.w, r.plus.h);
+    ctx.fillStyle = '#fff'; ctx.font = '20px monospace';
+    ctx.fillText('+', r.plus.x + r.plus.w/2, r.plus.y + r.plus.h/2);
+    // Jump button (shows the estimated cash)
+    ctx.fillStyle = '#2e7d32'; ctx.fillRect(r.jump.x, r.jump.y, r.jump.w, r.jump.h);
+    ctx.fillStyle = '#fff'; ctx.font = '11px monospace';
+    ctx.fillText('Jump  ($' + estCashForWave(N) + ')', b.x + b.w/2, r.jump.y + r.jump.h/2);
+    ctx.textAlign = 'left';
   }
 
   function renderMapSelect() {
