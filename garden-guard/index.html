@@ -52,7 +52,7 @@
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const IW = 640, IH = 360; // internal resolution (landscape 16:9)
-  const VERSION = 'v23';    // bump alongside CACHE_NAME in sw.js on each release
+  const VERSION = 'v24';    // bump alongside CACHE_NAME in sw.js on each release
 
   const START_CASH = 200;
   const START_HEARTS = 20;
@@ -86,29 +86,29 @@
 
   // Pest types. hp/speed scale with wave elsewhere. hearts = cost if it leaks.
   const PESTS = {
-    ant:   { name:'Ant',         hp:24,  speed:40, bounty:5,  hearts:1, color:'#8a3b2b', size:10, img:'pest-ant',    sprH:12 },
-    beetle:{ name:'Beetle',      hp:84,  speed:24, bounty:11, hearts:2, color:'#2b3a8a', size:14, img:'pest-beetle', sprH:16 },
-    lizard:{ name:'Lizard',      hp:16,  speed:82, bounty:6,  hearts:1, color:'#3a9d4a', size:12, img:'pest-lizard', sprH:14 },
-    cat:   { name:'Caterpillar', hp:440, speed:20, bounty:55, hearts:5, color:'#b85ac0', size:20, img:'pest-cat',    sprH:24 },
+    ant:   { name:'Ant',         hp:16,  speed:40, bounty:5,  hearts:1, color:'#8a3b2b', size:10, img:'pest-ant',    sprH:12 },
+    beetle:{ name:'Beetle',      hp:52,  speed:24, bounty:12, hearts:2, color:'#2b3a8a', size:14, img:'pest-beetle', sprH:16 },
+    lizard:{ name:'Lizard',      hp:11,  speed:82, bounty:6,  hearts:1, color:'#3a9d4a', size:12, img:'pest-lizard', sprH:14 },
+    cat:   { name:'Caterpillar', hp:280, speed:20, bounty:60, hearts:5, color:'#b85ac0', size:20, img:'pest-cat',    sprH:24 },
   };
 
   // Maps as data. path = ordered waypoints (internal px). plots = buildable centers.
+  // diff = per-map HP/wave-size multiplier. Path length drives coverage difficulty
+  // under free placement (longer, windier = more shoot time = easier).
   const MAPS = [
-    { id:'backyard', name:'Backyard Veggie Patch', difficulty:'Easy',
-      path: [ {x:-20,y:120}, {x:140,y:120}, {x:140,y:250}, {x:330,y:250},
-              {x:330,y:90}, {x:520,y:90}, {x:520,y:250}, {x:660,y:250} ],
-      plots: [ {x:90,y:185}, {x:200,y:185}, {x:200,y:300}, {x:280,y:185},
-               {x:390,y:150}, {x:470,y:150}, {x:470,y:300}, {x:580,y:160} ] },
-    { id:'flowerbed', name:'Flower Bed Maze', difficulty:'Medium',
-      path: [ {x:-20,y:60}, {x:120,y:60}, {x:120,y:180}, {x:60,y:180}, {x:60,y:300},
-              {x:300,y:300}, {x:300,y:120}, {x:440,y:120}, {x:440,y:300}, {x:660,y:300} ],
-      plots: [ {x:175,y:95}, {x:175,y:215}, {x:115,y:240}, {x:180,y:255},
-               {x:240,y:255}, {x:370,y:210}, {x:500,y:250}, {x:600,y:255} ] },
-    { id:'greenhouse', name:'Greenhouse', difficulty:'Hard',
-      path: [ {x:-20,y:40}, {x:560,y:40}, {x:560,y:120}, {x:80,y:120}, {x:80,y:200},
-              {x:560,y:200}, {x:560,y:280}, {x:80,y:280}, {x:80,y:340}, {x:660,y:340} ],
-      plots: [ {x:300,y:80}, {x:300,y:160}, {x:200,y:160}, {x:420,y:160},
-               {x:300,y:240}, {x:200,y:240}, {x:420,y:240}, {x:620,y:298} ] },
+    // EASY: long, winding S — lots of grass beside it, generous shoot time.
+    { id:'backyard', name:'Backyard Veggie Patch', difficulty:'Easy', diff: 1.0,
+      path: [ {x:-20,y:80}, {x:150,y:80}, {x:150,y:210}, {x:60,y:210}, {x:60,y:290},
+              {x:290,y:290}, {x:290,y:140}, {x:420,y:140}, {x:420,y:280}, {x:550,y:280},
+              {x:550,y:110}, {x:660,y:110} ] },
+    // MEDIUM: moderate length, a few bends.
+    { id:'flowerbed', name:'Flower Bed Maze', difficulty:'Medium', diff: 1.2,
+      path: [ {x:-20,y:70}, {x:430,y:70}, {x:430,y:230}, {x:150,y:230}, {x:150,y:290},
+              {x:560,y:290}, {x:560,y:160}, {x:660,y:160} ] },
+    // HARD: short, direct Z — minimal exposure, little room to line up towers.
+    { id:'greenhouse', name:'Greenhouse', difficulty:'Hard', diff: 1.4,
+      path: [ {x:-20,y:120}, {x:330,y:120}, {x:330,y:280}, {x:500,y:280},
+              {x:500,y:90}, {x:660,y:90} ] },
   ];
 
   // ---- Sprite images ----
@@ -360,17 +360,26 @@
 
   // ---- Wave composition + scaling ----
 
-  // HP grows ~12% per wave; speed nudges up slightly. Returns a scaled pest instance.
+  // Per-map difficulty multiplier (pest HP). Set on each map in MAPS; defaults to 1.
+  function mapDiff() { return (game && game.def && game.def.diff) || 1; }
+
+  // HP grows per wave (steeper now) and scales by the map's difficulty; speed ramps a bit.
   function scaledPest(type, n) {
     const base = PESTS[type];
-    const hp = Math.round(base.hp * Math.pow(1.22, n - 1));
-    const speed = base.speed * (1 + Math.min(0.7, (n - 1) * 0.028));
+    const hp = Math.round(base.hp * Math.pow(1.20, n - 1) * mapDiff());
+    const speed = base.speed * (1 + Math.min(0.75, (n - 1) * 0.026));
     return { type, hp, maxHp: hp, dist: 0, speed, slowUntil: 0 };
   }
-  // Composition: counts grow with n; types are interleaved round-robin so the
-  // stream is mixed (not grouped); boss appended every 5th wave.
+  // Composition: counts grow with n (and a little with map difficulty); types are
+  // interleaved round-robin so the stream is mixed; boss appended every 5th wave.
   function waveSpec(n) {
-    const counts = { ant: 3 + n, lizard: Math.floor(n * 0.8), beetle: Math.floor(n * 0.55) };
+    const d = mapDiff();
+    const bump = 1 + (d - 1) * 0.5;   // harder maps also send somewhat more pests
+    const counts = {
+      ant:    Math.round((3 + n) * bump),
+      lizard: Math.floor(n * 0.85 * bump),
+      beetle: Math.floor(n * 0.6  * bump),
+    };
     const order = ['ant', 'lizard', 'beetle'];
     const list = [];
     let remaining = counts.ant + counts.lizard + counts.beetle;
