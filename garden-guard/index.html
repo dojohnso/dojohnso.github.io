@@ -52,7 +52,7 @@
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const IW = 640, IH = 360; // internal resolution (landscape 16:9)
-  const VERSION = 'v32';    // bump alongside CACHE_NAME in sw.js on each release
+  const VERSION = 'v33';    // bump alongside CACHE_NAME in sw.js on each release
 
   const START_CASH = 200;
   const START_HEARTS = 20;
@@ -94,8 +94,15 @@
               tiers: [ {cost:80,  dmg:120, range:16, fireMs:7000},
                        {cost:70,  dmg:260, range:16, fireMs:6000},
                        {cost:120, dmg:520, range:16, fireMs:5000} ] },
+    // Poison Sprayer: low direct dmg, but a hit POISONS the target (duration-based DoT that
+    // ticks small damage and bypasses armor). Re-spraying refreshes/extends. Great vs tanky/
+    // slow (snails, caterpillars, boss), weak vs fast swarms. poisTick=dmg/tick, poisMs=duration.
+    sprayer:{ name: 'Poison Sprayer', short:'Spray',   color: '#8fb04a', proj: 'poison',
+              tiers: [ {cost:85,  dmg:2, range:92,  fireMs:700, poisTick:4,  poisMs:2600},
+                       {cost:75,  dmg:3, range:102, fireMs:640, poisTick:7,  poisMs:3000},
+                       {cost:120, dmg:5, range:112, fireMs:580, poisTick:11, poisMs:3400} ] },
   };
-  const TOWER_ORDER = ['can','zapper','sprink','scare','beehive','mole'];
+  const TOWER_ORDER = ['can','zapper','sprink','scare','beehive','mole','sprayer'];
   const SELL_REFUND = 0.6; // fraction of total spent returned on sell
 
   // Pest types. hp/speed scale with wave elsewhere. hearts = cost if it leaks.
@@ -111,6 +118,10 @@
     // Flyer: only anti-air towers (Beehive/Zapper/Scarecrow) can hit it; ground traps/
     // towers whiff. Hovers above the path with a drop-shadow. Moderate HP, quick.
     moth:  { name:'Moth',        hp:28,  speed:58, bounty:12, hearts:2, color:'#d9c7a0', size:14, sprH:16, flying:true },
+    // Armored: subtracts `armor` from every DIRECT hit (min 1 gets through), so rapid weak
+    // shots are gutted and heavy hits punch through. Poison DoT bypasses armor (see
+    // damagePest) — the Sprayer is its natural counter. Slow, chunky, good bounty.
+    snail: { name:'Snail',       hp:46,  speed:22, bounty:16, hearts:2, color:'#c58a5a', size:16, sprH:18, armor:4 },
     // BOSS: huge HP, slow, big bounty + hearts if it leaks. Appears as the finale of the
     // wave-10 and wave-20 boss waves. Canvas-drawn (no sprite); boss flag drives the big
     // HP bar + screen shake on hits. Ground type (mole traps & all towers can hit it).
@@ -646,12 +657,14 @@
       beetle: Math.floor(n * 0.6  * bump),
       // Splitters arrive mid-game (wave 4+) and grow slowly — each one becomes 3 bodies.
       aphid:  n >= 4 ? Math.max(1, Math.round((n - 3) * 0.6 * bump)) : 0,
+      // Armored snails arrive wave 5+ — want heavy hitters or poison (DoT bypasses armor).
+      snail:  n >= 5 ? Math.max(1, Math.round((n - 4) * 0.5 * bump)) : 0,
       // Flyers arrive wave 6+ — need anti-air (Beehive/Zapper/Scarecrow) to hit them.
       moth:   n >= 6 ? Math.max(1, Math.round((n - 5) * 0.55 * bump)) : 0,
     };
-    const order = ['ant', 'lizard', 'beetle', 'aphid', 'moth'];
+    const order = ['ant', 'lizard', 'beetle', 'aphid', 'snail', 'moth'];
     const list = [];
-    let remaining = counts.ant + counts.lizard + counts.beetle + counts.aphid + counts.moth;
+    let remaining = counts.ant + counts.lizard + counts.beetle + counts.aphid + counts.snail + counts.moth;
     while (remaining > 0) {
       for (const t of order) {
         if (counts[t] > 0) { list.push(t); counts[t]--; remaining--; }
@@ -746,9 +759,27 @@
 
   // ---- Firing + projectiles + damage ----
 
-  function damagePest(p, dmg) {
+  // Apply damage. Direct hits are reduced by the pest's flat armor (min 1 gets through);
+  // poison ticks pass pierce=true to bypass armor (a tick is tiny — armor would zero it).
+  function damagePest(p, dmg, pierce) {
+    const armor = PESTS[p.type].armor || 0;
+    if (armor && !pierce) dmg = Math.max(1, dmg - armor);
     p.hp -= dmg;
     if (p.hp <= 0) { onPestKilled(p); }
+  }
+  // Poison a pest: duration-based DoT. Re-spraying refreshes the duration and keeps the
+  // stronger per-second tick. poisonTick = damage/second; poisonUntil = game.elapsed end.
+  function applyPoison(p, tickPerSec, durMs) {
+    p.poisonTick = Math.max(p.poisonTick || 0, tickPerSec);
+    p.poisonUntil = Math.max(p.poisonUntil || 0, game.elapsed + durMs);
+  }
+  // Apply all active poison this frame (continuous DoT, armor-piercing).
+  function tickPoison(dt) {
+    for (const p of game.pests.slice()) {
+      if (p.poisonUntil && p.poisonUntil > game.elapsed && p.poisonTick) {
+        damagePest(p, p.poisonTick * (dt / 1000), true);   // pierce armor
+      }
+    }
   }
   function onPestKilled(p) {
     blip(440, 40, 'sawtooth');
@@ -827,6 +858,7 @@
           x: t.x, y: t.y, tx: pt.x, ty: pt.y, target,
           dmg: s.dmg, kind: def.proj, aoe: def.aoe || 0,
           slow: def.slow || 0, slowMs: def.slowMs || 0, speed: 320,
+          poisTick: s.poisTick || 0, poisMs: s.poisMs || 0,   // poison payload (sprayer)
         });
       }
       t.cooldown = s.fireMs;                    // start a fresh cooldown from the shot
@@ -871,6 +903,7 @@
           }
         } else if (pr.target && game.pests.includes(pr.target)) {
           if (pr.slow) pr.target.slowUntil = game.elapsed + pr.slowMs;
+          if (pr.poisTick) applyPoison(pr.target, pr.poisTick, pr.poisMs);
           damagePest(pr.target, pr.dmg);
         }
         // projectile consumed (not pushed to next)
@@ -907,6 +940,7 @@
     game.pests = game.pests.filter(p => p.dist < game.path.total);
     fireTowers(dt);
     advanceProjectiles(dt);
+    tickPoison(dt);   // damage-over-time resolves after direct hits
     // Wave clears the instant the last pest is gone — any still-airborne projectiles
     // are orphaned (their target is dead) and can't affect anything, so don't wait on them.
     if (game.waveActive && !game.spawnQueue.length && !game.pests.length) onWaveCleared();
@@ -1049,6 +1083,28 @@
     }
     ctx.restore();
   }
+  // Canvas-drawn poison sprayer: a green tank with a nozzle + a couple of drip dots.
+  function drawSprayer(cx, cy, scale) {
+    scale = scale || 1;
+    ctx.save(); ctx.translate(cx, cy);
+    // tank body
+    ctx.fillStyle = '#6f9a38';
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-7*scale, -3*scale, 14*scale, 13*scale, 3*scale)
+                                   : ctx.rect(-7*scale, -3*scale, 14*scale, 13*scale);
+    ctx.fill();
+    ctx.fillStyle = '#8fb04a';                               // lighter front panel
+    ctx.fillRect(-5*scale, -1*scale, 10*scale, 9*scale);
+    // nozzle on top
+    ctx.fillStyle = '#4a5f28';
+    ctx.fillRect(-2*scale, -9*scale, 4*scale, 6*scale);
+    ctx.fillRect(2*scale, -8*scale, 4*scale, 2.5*scale);     // spout
+    // hazard drips
+    ctx.fillStyle = '#c6e86a';
+    ctx.beginPath(); ctx.arc(0, 2*scale, 2*scale, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#4a5f28';
+    ctx.beginPath(); ctx.arc(0, 2*scale, 0.9*scale, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
 
   function drawHUD() {
     const hud = hudHitRects();
@@ -1125,6 +1181,10 @@
       } else if (id === 'mole') {                 // canvas-drawn mole-trap icon
         ctx.globalAlpha = affordable ? 1 : 0.4;
         drawMole(tb.x + 16, tb.y + 15, 0.95, 0.7);
+        ctx.globalAlpha = 1;
+      } else if (id === 'sprayer') {              // canvas-drawn sprayer icon
+        ctx.globalAlpha = affordable ? 1 : 0.4;
+        drawSprayer(tb.x + 16, tb.y + 15, 0.9);
         ctx.globalAlpha = 1;
       } else {                                    // fallback color box if sprite missing
         ctx.fillStyle = affordable ? TOWERS[id].color : '#777';
@@ -1412,6 +1472,28 @@
         const frame = Math.floor(p.dist / 8) % 2;      // wiggle by distance traveled
         drawH = im.height;
         ctx.drawImage(im, frame*fw, 0, fw, im.height, Math.round(pt.x - fw/2), Math.round(pt.y - im.height/2), fw, im.height);
+      } else if (def.armor) {
+        // Snail: a foot/body with a spiral shell on top — reads as the armored one.
+        const r = def.size / 2, wob = Math.sin(p.dist / 6) * 0.8;
+        ctx.fillStyle = 'rgba(0,0,0,0.18)';
+        ctx.beginPath(); ctx.ellipse(pt.x, pt.y + r*0.6, r*1.05, r*0.4, 0, 0, Math.PI*2); ctx.fill();
+        // soft body/foot
+        ctx.fillStyle = '#d8b48a';
+        ctx.beginPath(); ctx.ellipse(pt.x + wob, pt.y + r*0.3, r*1.0, r*0.5, 0, 0, Math.PI*2); ctx.fill();
+        // head + eye stalks (leading, in travel direction ≈ to the right)
+        ctx.beginPath(); ctx.ellipse(pt.x + r*0.9 + wob, pt.y + r*0.1, r*0.4, r*0.35, 0, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = '#d8b48a'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(pt.x + r*1.0, pt.y); ctx.lineTo(pt.x + r*1.2, pt.y - r*0.7); ctx.stroke();
+        ctx.fillStyle = '#3a2a1a';
+        ctx.beginPath(); ctx.arc(pt.x + r*1.2, pt.y - r*0.7, 1, 0, Math.PI*2); ctx.fill();
+        // the armored shell (spiral)
+        ctx.fillStyle = def.color;
+        ctx.beginPath(); ctx.arc(pt.x - r*0.2 + wob, pt.y - r*0.15, r*0.85, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = '#7a4f2a'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(pt.x - r*0.2 + wob, pt.y - r*0.15, r*0.55, 0, Math.PI*2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(pt.x - r*0.2 + wob, pt.y - r*0.15, r*0.28, 0, Math.PI*2); ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.beginPath(); ctx.arc(pt.x - r*0.45 + wob, pt.y - r*0.4, r*0.2, 0, Math.PI*2); ctx.fill();
       } else {
         // No sprite (aphids): draw a little rounded body with a darker rim + top highlight,
         // plus two tiny antennae so it reads as a bug, not a plain dot.
@@ -1426,6 +1508,29 @@
         ctx.beginPath(); ctx.arc(pt.x + wob, pt.y, r, 0, Math.PI*2); ctx.fill();
         ctx.fillStyle = 'rgba(255,255,255,0.35)';        // top-left highlight
         ctx.beginPath(); ctx.arc(pt.x + wob - r*0.3, pt.y - r*0.3, r*0.35, 0, Math.PI*2); ctx.fill();
+      }
+      // poison tint: a bright pulsing aura + rising bubbles while poisoned. Toxic green
+      // reads poorly on grass, so we go bold — brighter, bigger, with a dark rim.
+      if (p.poisonUntil && p.poisonUntil > game.elapsed) {
+        const r = def.size / 2;
+        const pulse = 0.5 + 0.5 * Math.sin(game.elapsed / 140);   // 0..1 breathe
+        // dark rim so the green stands out against grass
+        ctx.strokeStyle = 'rgba(40,70,10,0.5)'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, r + 4, 0, Math.PI*2); ctx.stroke();
+        // bright glow aura (alpha pulses)
+        ctx.fillStyle = 'rgba(140,235,50,' + (0.3 + pulse * 0.25) + ')';
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, r + 4, 0, Math.PI*2); ctx.fill();
+        // more + bigger bubbles rising higher, with a dark outline each
+        for (let b = 0; b < 4; b++) {
+          const ph = (game.elapsed / 420 + b * 0.27) % 1;
+          const bx = pt.x + Math.sin(b * 2 + game.elapsed / 300) * (r * 0.7);
+          const by = pt.y - r - ph * 14;
+          const br = (1 - ph) * 2.4 + 0.8;                        // shrink as they rise
+          ctx.fillStyle = 'rgba(40,70,10,0.5)';
+          ctx.beginPath(); ctx.arc(bx, by, br + 0.6, 0, Math.PI*2); ctx.fill();
+          ctx.fillStyle = 'rgba(175,245,90,' + (1 - ph) + ')';
+          ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI*2); ctx.fill();
+        }
       }
       // health bar — thin, above the pest, only once it has taken damage
       if (p.hp < p.maxHp) {
@@ -1483,6 +1588,14 @@
             ctx.fillRect(t.x - 6 + i*6, t.y + 11, 4, 4);
           }
         }
+      } else if (t.type === 'sprayer') {
+        drawSprayer(t.x, t.y, 1 + t.tier * 0.1);
+        if (t.tier > 0) {
+          for (let i = 0; i < t.tier; i++) {
+            ctx.fillStyle = '#ffe14a';
+            ctx.fillRect(t.x - 6 + i*6, t.y + 12, 4, 4);
+          }
+        }
       } else {
         ctx.fillStyle = TOWERS[t.type].color;
         const s = 18 + t.tier * 2;
@@ -1499,6 +1612,11 @@
         ctx.beginPath(); ctx.arc(pr.x, pr.y, 2.4, 0, Math.PI*2); ctx.fill();
         ctx.fillStyle = '#3a2a00';
         ctx.fillRect(pr.x - 0.6 + bw*0.3, pr.y - 2.4, 1.2, 4.8);   // stripe
+      } else if (pr.kind === 'poison') {
+        ctx.fillStyle = '#9fd14a';                              // green glob with dark core
+        ctx.beginPath(); ctx.arc(pr.x, pr.y, 3, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = 'rgba(60,90,20,0.8)';
+        ctx.beginPath(); ctx.arc(pr.x, pr.y, 1.3, 0, Math.PI*2); ctx.fill();
       } else {
         ctx.fillStyle = '#fff';
         ctx.beginPath(); ctx.arc(pr.x, pr.y, 3, 0, Math.PI*2); ctx.fill();
@@ -1534,6 +1652,8 @@
         ctx.globalAlpha = 0.6; drawBeehive(g.x, g.y, 1); ctx.globalAlpha = 1;
       } else if (type === 'mole') {
         ctx.globalAlpha = 0.6; drawMole(g.x, g.y, 1, 0); ctx.globalAlpha = 1;
+      } else if (type === 'sprayer') {
+        ctx.globalAlpha = 0.6; drawSprayer(g.x, g.y, 1); ctx.globalAlpha = 1;
       }
       ctx.fillStyle = tint;
       ctx.beginPath(); ctx.arc(g.x, g.y, 3, 0, Math.PI*2); ctx.fill();  // center dot
