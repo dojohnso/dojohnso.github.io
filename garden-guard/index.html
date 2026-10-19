@@ -52,11 +52,12 @@
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const IW = 640, IH = 360; // internal resolution (landscape 16:9)
-  const VERSION = 'v31';    // bump alongside CACHE_NAME in sw.js on each release
+  const VERSION = 'v32';    // bump alongside CACHE_NAME in sw.js on each release
 
   const START_CASH = 200;
   const START_HEARTS = 20;
   const UNLOCK_WAVE = 10;          // clear this wave to unlock the next map
+  const WIN_WAVE = 20;             // clear this wave to "defend the map" (win screen)
   const WAVE_CLEAR_BONUS = 26;     // cash awarded when a wave is fully cleared
   const WAVE_COUNTDOWN_MS = 8000;  // auto-start the next wave after this idle countdown
   const EARLY_START_BONUS_PER_SEC = 2; // bonus cash per whole second skipped by tapping Start Wave early
@@ -110,6 +111,10 @@
     // Flyer: only anti-air towers (Beehive/Zapper/Scarecrow) can hit it; ground traps/
     // towers whiff. Hovers above the path with a drop-shadow. Moderate HP, quick.
     moth:  { name:'Moth',        hp:28,  speed:58, bounty:12, hearts:2, color:'#d9c7a0', size:14, sprH:16, flying:true },
+    // BOSS: huge HP, slow, big bounty + hearts if it leaks. Appears as the finale of the
+    // wave-10 and wave-20 boss waves. Canvas-drawn (no sprite); boss flag drives the big
+    // HP bar + screen shake on hits. Ground type (mole traps & all towers can hit it).
+    grub:  { name:'Grubzilla',   hp:1400, speed:16, bounty:200, hearts:10, color:'#7b4ea0', size:34, sprH:40, boss:true },
   };
 
   // Maps as data. path = ordered waypoints (internal px). plots = buildable centers.
@@ -455,6 +460,16 @@
       speed: 1,         // sim speed multiplier (1 or 2)
       wavePicker: null, // when open: the target wave being chosen in the jump picker
       pausedBeforePicker: false, // pause state to restore when the picker closes
+      // --- juice ---
+      pops: [],         // floating texts {x,y,vy,text,col,life,maxLife}
+      particles: [],    // {x,y,vx,vy,life,maxLife,col,r}
+      shake: 0,         // screen-shake magnitude (decays each frame)
+      flash: 0,         // red damage-flash alpha (decays each frame)
+      combo: 0,         // consecutive kills without a leak
+      bestCombo: 0,     // high combo this run
+      comboTimer: 0,    // ms since last kill (combo fades if idle too long)
+      banner: null,     // {text, sub, life, maxLife, col} celebration banner
+      winScreen: false, // true once "Map Defended!" is showing (wave 20 cleared)
     };
   }
   // Estimated cash a decent player would hold ARRIVING at the start of wave N
@@ -525,6 +540,49 @@
       o.start(); o.stop(actx.currentTime + ms/1000);
     } catch (e) {}
   }
+
+  // ---- Juice: floating popups, particles, shake, flash, combo, banners ----
+  function addPop(x, y, text, col) {
+    if (!game) return;
+    game.pops.push({ x, y, vy: -0.03, text, col: col || '#fff', life: 900, maxLife: 900 });
+    if (game.pops.length > 40) game.pops.shift();   // cap so a big wave can't pile up
+  }
+  function burst(x, y, col, n, spread) {
+    if (!game) return;
+    n = n || 8; spread = spread || 0.12;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, sp = spread * (0.4 + Math.random());
+      game.particles.push({ x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp - 0.03,
+        life: 600 + Math.random()*300, maxLife: 800, col, r: 1.5 + Math.random()*2 });
+    }
+    if (game.particles.length > 260) game.particles.splice(0, game.particles.length - 260);
+  }
+  function addShake(mag) { if (game) game.shake = Math.min(14, Math.max(game.shake, mag)); }
+  function addFlash(a)   { if (game) game.flash = Math.min(0.6, Math.max(game.flash, a)); }
+  function showBanner(text, sub, col, ms) {
+    if (!game) return;
+    game.banner = { text, sub: sub || '', col: col || '#ffe14a', life: ms || 2600, maxLife: ms || 2600 };
+  }
+  function bumpCombo() {
+    if (!game) return;
+    game.combo += 1; game.comboTimer = 0;
+    if (game.combo > game.bestCombo) game.bestCombo = game.combo;
+  }
+  function resetCombo() { if (game) game.combo = 0; }
+  // Advance all juice timers (called from update()).
+  function updateJuice(dt) {
+    game.shake *= Math.pow(0.86, dt / STEP);  if (game.shake < 0.2) game.shake = 0;
+    game.flash *= Math.pow(0.88, dt / STEP);  if (game.flash < 0.01) game.flash = 0;
+    for (const p of game.pops) { p.life -= dt; p.y += p.vy * dt; }
+    game.pops = game.pops.filter(p => p.life > 0);
+    for (const pr of game.particles) {
+      pr.life -= dt; pr.x += pr.vx * dt; pr.y += pr.vy * dt; pr.vy += 0.0006 * dt; // gravity
+    }
+    game.particles = game.particles.filter(pr => pr.life > 0);
+    if (game.banner) { game.banner.life -= dt; if (game.banner.life <= 0) game.banner = null; }
+    if (game.combo > 0) { game.comboTimer += dt; if (game.comboTimer > 3500) resetCombo(); }
+  }
+
   function placeTower(x, y, type) {
     if (game.cash < towerBuyCost(type) || !canPlace(x, y, type)) return false;
     game.cash -= towerBuyCost(type);
@@ -569,7 +627,11 @@
   // dist0 lets split children spawn partway along the path (at the parent's death spot).
   function scaledPest(type, n, dist0) {
     const base = PESTS[type];
-    const hp = Math.round(base.hp * Math.pow(1.20, n - 1) * mapDiff());
+    // Bosses scale GENTLY (linear-ish) — the normal 1.20^n exponential would make a
+    // wave-20 boss absurd. Everything else uses the standard per-wave HP ramp.
+    const hp = base.boss
+      ? Math.round(base.hp * (1 + (n - 10) * 0.08) * mapDiff())   // +8% HP per wave past 10
+      : Math.round(base.hp * Math.pow(1.20, n - 1) * mapDiff());
     const speed = base.speed * (1 + Math.min(0.75, (n - 1) * 0.026));
     return { type, hp, maxHp: hp, dist: dist0 || 0, speed, slowUntil: 0 };
   }
@@ -595,9 +657,14 @@
         if (counts[t] > 0) { list.push(t); counts[t]--; remaining--; }
       }
     }
-    if (n % 5 === 0) list.push('cat');
+    // Caterpillar mini-boss every 5th wave (except the big boss waves, which get Grubzilla).
+    if (n % 5 === 0 && !BOSS_WAVES.includes(n)) list.push('cat');
+    // Big boss waves (10, 20): Grubzilla lumbers in as the grand finale.
+    if (BOSS_WAVES.includes(n)) list.push('grub');
     return list;
   }
+  const BOSS_WAVES = [10, 20];
+  function isBossWave(n) { return BOSS_WAVES.includes(n); }
 
   // ---- Wave lifecycle + spawn scheduling ----
 
@@ -615,11 +682,21 @@
     game.waveActive = true;
     game.elapsed = 0;
     const types = waveSpec(game.wave);
-    game.spawnQueue = types.map((type, i) => ({ type, atMs: i * SPAWN_GAP }));
+    game.spawnQueue = types.map((type, i) => {
+      // The boss lumbers in last, after an extra beat so the swarm clears first.
+      const extra = PESTS[type].boss ? 1400 : 0;
+      return { type, atMs: i * SPAWN_GAP + extra };
+    });
   }
   function leakPest(p) {
     blip(150, 140, 'sine');
-    game.hearts -= PESTS[p.type].hearts;
+    const h = PESTS[p.type].hearts;
+    game.hearts -= h;
+    // --- juice: a leak hurts — red flash, shake, lost-hearts popup, combo reset ---
+    addFlash(0.4); addShake(6);
+    const goal = game.path.points[game.path.points.length - 1];
+    addPop(goal.x, goal.y - 20, '-' + h + '♥', '#ff5a5a');
+    resetCombo();
     if (game.hearts <= 0) { game.hearts = 0; gameOver(); }
   }
   function onWaveCleared() {
@@ -628,13 +705,42 @@
     game.cash += WAVE_CLEAR_BONUS;
     const prevBest = meta.best[game.mapId] || 0;
     if (game.wave > prevBest) { meta.best[game.mapId] = game.wave; saveMeta(); }
-    if (game.wave >= UNLOCK_WAVE) unlockNext(game.mapId);
+    // --- milestone celebrations ---
+    if (game.wave === UNLOCK_WAVE) {
+      const unlocked = unlockNext(game.mapId);   // returns the newly-unlocked map (or null)
+      celebrate(unlocked ? 'Next Map Unlocked!' : 'Wave 10 Cleared!',
+                unlocked ? unlocked.name + ' is open' : 'Keep going!', '#7ec0ff');
+    } else if (game.wave >= UNLOCK_WAVE) {
+      unlockNext(game.mapId);                     // (no-op if already unlocked)
+    }
+    if (game.wave === WIN_WAVE) {
+      // "Map Defended!" — big celebration, then the win screen with Home / Continue.
+      celebrate('Map Defended!', 'You beat ' + game.def.name + '!', '#ffe14a');
+      blip(660, 180); blip(880, 220);
+      game.winScreen = true;                      // shown by the renderer; pauses auto-advance
+      return;                                     // don't arm the next-wave countdown yet
+    }
     armCountdown(); // start the breather before the next wave
+  }
+  // A celebration: banner + confetti burst from the top-center.
+  function celebrate(text, sub, col) {
+    showBanner(text, sub, col, 3200);
+    const cx = IW / 2, cy = 90;
+    const colors = ['#ffe14a', '#ff7a5c', '#7ec0ff', '#5ad15a', '#f2b705'];
+    for (let i = 0; i < 90; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 0.08 + Math.random() * 0.22;
+      game.particles.push({ x: cx + (Math.random()-0.5)*120, y: cy,
+        vx: Math.cos(a)*sp, vy: Math.abs(Math.sin(a))*sp*0.5 - 0.04,
+        life: 1400 + Math.random()*900, maxLife: 2300,
+        col: colors[(Math.random()*colors.length)|0], r: 2 + Math.random()*2.5 });
+    }
+    addShake(5);
   }
   function unlockNext(mapId) {
     const idx = MAPS.findIndex(m => m.id === mapId);
     const next = MAPS[idx + 1];
-    if (next && !meta.unlocked[next.id]) { meta.unlocked[next.id] = true; saveMeta(); }
+    if (next && !meta.unlocked[next.id]) { meta.unlocked[next.id] = true; saveMeta(); return next; }
+    return null;
   }
   function gameOver() { screen = 'gameover'; if (typeof renderGameOver === 'function') renderGameOver(); }
 
@@ -646,12 +752,24 @@
   }
   function onPestKilled(p) {
     blip(440, 40, 'sawtooth');
-    game.cash += PESTS[p.type].bounty;
+    const def = PESTS[p.type];
+    game.cash += def.bounty;
     const i = game.pests.indexOf(p);
     if (i >= 0) game.pests.splice(i, 1);
+    // --- juice: cash popup, kill burst, combo ---
+    const kp = pointAt(game.path, p.dist);
+    const ky = kp.y - (def.flying ? 16 : 0);
+    addPop(kp.x, ky, '+$' + def.bounty, '#ffe14a');
+    burst(kp.x, ky, def.color, def.boss ? 26 : 7, def.boss ? 0.22 : 0.12);
+    bumpCombo();
+    if (def.boss) {                                   // boss down: big celebration
+      blip(220, 300, 'square'); blip(440, 300, 'square');
+      addShake(10);
+      burst(kp.x, ky, '#ffe14a', 30, 0.25);
+      addPop(kp.x, ky - 14, 'BOSS DOWN!', '#ff7a5c');
+    }
     // Splitter: spawn children just BEHIND the death spot (so they don't skip ahead,
     // and sit outside any AoE blast that just landed). Children never re-split.
-    const def = PESTS[p.type];
     if (def.splits && def.childType) {
       for (let k = 0; k < def.splits; k++) {
         const back = 10 + k * 8;                 // stagger them slightly along the path
@@ -770,9 +888,14 @@
       if (game.countdown <= 0) { game.countdown = null; startWave(); return; }
     }
     game.elapsed += dt;
+    updateJuice(dt);
     while (game.spawnQueue.length && game.spawnQueue[0].atMs <= game.elapsed) {
       const s = game.spawnQueue.shift();
       game.pests.push(scaledPest(s.type, game.wave));
+      if (PESTS[s.type].boss) {                   // boss enters the field — announce it
+        showBanner(PESTS[s.type].name + '!', 'Boss incoming', '#ff7a5c', 2200);
+        addShake(8); blip(110, 400, 'sawtooth');
+      }
     }
     for (const p of game.pests) {
       const slowed = p.slowUntil > game.elapsed ? 0.5 : 1;
@@ -1120,6 +1243,14 @@
     const hud = hudHitRects();
     dragging = false;
 
+    // (0a) win screen is modal: only Home / Continue act.
+    if (game.winScreen) {
+      const r = winScreenRects();
+      if (inRect(p, r.home)) { game.winScreen = false; showMapSelect(); return; }
+      if (inRect(p, r.cont)) { game.winScreen = false; armCountdown(); return; }  // keep playing (endless)
+      return;  // swallow other taps
+    }
+
     // (0) wave-jump picker is modal: only its own buttons act; taps elsewhere are ignored
     //     (no tap-outside-to-cancel, to avoid accidental dismissal).
     if (game.wavePicker != null) {
@@ -1213,6 +1344,12 @@
       ctx.fillStyle = GRASS_TILE; ctx.fillRect(0, 0, IW, IH);
       return;
     }
+    // Screen shake: offset the whole gameplay layer by a decaying random jitter.
+    ctx.save();
+    if (game.shake > 0.2) {
+      const sx = (Math.random() - 0.5) * game.shake, sy = (Math.random() - 0.5) * game.shake;
+      ctx.translate(sx, sy);
+    }
     drawTerrain(game.path);
     drawDecor(game.decor);   // trees + bushes sit on the grass, under towers/pests
     for (const p of game.pests) {
@@ -1220,6 +1357,31 @@
       const pt = pointAt(game.path, p.dist);
       const im = IMG[def.img];
       let drawH = def.sprH || def.size;
+      // Boss (Grubzilla): big canvas-drawn brute with a chunky look + prominent bar.
+      if (def.boss) {
+        const r = def.size / 2, wob = Math.sin(p.dist / 6) * 2;
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.beginPath(); ctx.ellipse(pt.x, pt.y + r*0.7, r*1.05, r*0.45, 0, 0, Math.PI*2); ctx.fill();
+        // segmented body
+        for (let seg = 2; seg >= 0; seg--) {
+          ctx.fillStyle = seg % 2 ? '#5f3b80' : def.color;
+          ctx.beginPath(); ctx.arc(pt.x - seg*4 + wob*0.3, pt.y, r - seg*1.5, 0, Math.PI*2); ctx.fill();
+        }
+        ctx.fillStyle = '#3a2450';                         // spiky back ridges
+        for (let k = -1; k <= 1; k++) { ctx.beginPath();
+          ctx.moveTo(pt.x + k*8, pt.y - r*0.7); ctx.lineTo(pt.x + k*8 - 3, pt.y - r*1.15);
+          ctx.lineTo(pt.x + k*8 + 3, pt.y - r*1.15); ctx.closePath(); ctx.fill(); }
+        ctx.fillStyle = '#ffe14a';                         // angry eyes
+        ctx.beginPath(); ctx.arc(pt.x + r*0.5 + wob, pt.y - r*0.2, 2.6, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(pt.x + r*0.5 + wob, pt.y + r*0.3, 2.6, 0, Math.PI*2); ctx.fill();
+        // big HP bar always visible above the boss
+        const frac = Math.max(0, p.hp / p.maxHp), bw = 46;
+        const bx = Math.round(pt.x - bw/2), by = Math.round(pt.y - r - 12);
+        ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillRect(bx-1, by-1, bw+2, 7);
+        ctx.fillStyle = frac > 0.5 ? '#5ad15a' : frac > 0.25 ? '#ffe14a' : '#e8503a';
+        ctx.fillRect(bx, by, Math.round(bw*frac), 5);
+        continue;
+      }
       // Flyers (moth): hover ABOVE the path with a ground shadow + fluttering wings.
       if (def.flying) {
         const lift = 14 + Math.sin(p.dist / 9) * 2;        // hover height + gentle bob
@@ -1376,10 +1538,35 @@
       ctx.fillStyle = tint;
       ctx.beginPath(); ctx.arc(g.x, g.y, 3, 0, Math.PI*2); ctx.fill();  // center dot
     }
+    // world-space juice (inside the shake transform): particles + floating popups
+    for (const pr of game.particles) {
+      ctx.globalAlpha = Math.max(0, Math.min(1, pr.life / pr.maxLife));
+      ctx.fillStyle = pr.col;
+      ctx.beginPath(); ctx.arc(pr.x, pr.y, pr.r, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const p of game.pops) {
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life / 400));
+      ctx.font = 'bold 12px monospace';
+      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillText(p.text, p.x + 1, p.y + 1);
+      ctx.fillStyle = p.col; ctx.fillText(p.text, p.x, p.y);
+    }
+    ctx.globalAlpha = 1; ctx.textAlign = 'left';
+    ctx.restore();   // end screen-shake transform — UI below is NOT shaken
+
+    // red damage flash (full-screen tint)
+    if (game.flash > 0.01) {
+      ctx.fillStyle = 'rgba(220,40,40,' + game.flash + ')';
+      ctx.fillRect(0, 0, IW, IH);
+    }
     drawHUD();
     drawShopStats();
     drawPopup();
+    drawComboBadge();
+    drawBanner();
     drawWavePicker();
+    drawWinScreen();
   }
 
   function drawWavePicker() {
@@ -1411,6 +1598,71 @@
     ctx.fillStyle = '#5a3030'; ctx.fillRect(r.cancel.x, r.cancel.y, r.cancel.w, r.cancel.h);
     ctx.fillStyle = '#fff'; ctx.font = '11px monospace';
     ctx.fillText('Cancel', b.x + b.w/2, r.cancel.y + r.cancel.h/2);
+    ctx.textAlign = 'left';
+  }
+
+  // Combo badge (top-right-ish of the playfield) once the streak is interesting.
+  function drawComboBadge() {
+    if (!game || game.combo < 3) return;
+    const x = IW - 86, y = 54;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const pulse = 1 + Math.max(0, (200 - game.comboTimer) / 200) * 0.25;  // pop on each kill
+    ctx.save(); ctx.translate(x, y); ctx.scale(pulse, pulse);
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(-44, -12, 88, 24);
+    ctx.fillStyle = game.combo >= 15 ? '#ff7a5c' : game.combo >= 8 ? '#ffe14a' : '#fff';
+    ctx.font = 'bold 15px monospace';
+    ctx.fillText(game.combo + '× COMBO', 0, 0);
+    ctx.restore();
+    ctx.textAlign = 'left';
+  }
+
+  // Celebration banner: big text that slides in, holds, and fades near the top.
+  function drawBanner() {
+    if (!game || !game.banner) return;
+    const b = game.banner, t = 1 - b.life / b.maxLife;    // 0→1 over its lifetime
+    const inY = Math.min(1, t / 0.12);                     // slide/fade in over first 12%
+    const alpha = b.life < 500 ? b.life / 500 : inY;       // fade out in last 500ms
+    const y = 74 - (1 - inY) * 20;
+    ctx.save(); ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = 'bold 30px monospace';
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillText(b.text, IW/2 + 2, y + 2);
+    ctx.fillStyle = b.col; ctx.fillText(b.text, IW/2, y);
+    if (b.sub) {
+      ctx.font = '13px monospace'; ctx.fillStyle = '#fff';
+      ctx.fillText(b.sub, IW/2, y + 24);
+    }
+    ctx.restore(); ctx.textAlign = 'left';
+  }
+
+  function winScreenRects() {
+    const w = 320, h = 150, x = (IW - w)/2, y = (IH - h)/2 - 6;
+    const bw = (w - 40) / 2;
+    return {
+      box:   { x, y, w, h },
+      home:  { x: x + 14,        y: y + h - 42, w: bw, h: 30 },
+      cont:  { x: x + 26 + bw,   y: y + h - 42, w: bw, h: 30 },
+    };
+  }
+  // "Map Defended!" win screen with Return Home / Continue (Endless) buttons.
+  function drawWinScreen() {
+    if (!game || !game.winScreen) return;
+    const r = winScreenRects(), b = r.box;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, IW, IH);
+    ctx.fillStyle = 'rgba(20,48,26,0.97)'; ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.strokeStyle = '#ffe14a'; ctx.lineWidth = 3; ctx.strokeRect(b.x+1.5, b.y+1.5, b.w-3, b.h-3);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffe14a'; ctx.font = 'bold 26px monospace';
+    ctx.fillText('★ Map Defended! ★', b.x + b.w/2, b.y + 34);
+    ctx.fillStyle = '#fff'; ctx.font = '13px monospace';
+    ctx.fillText('You beat ' + game.def.name + ' (Wave ' + game.wave + ')', b.x + b.w/2, b.y + 64);
+    // buttons
+    ctx.fillStyle = '#2e7d32'; ctx.fillRect(r.home.x, r.home.y, r.home.w, r.home.h);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 13px monospace';
+    ctx.fillText('⌂ Home', r.home.x + r.home.w/2, r.home.y + r.home.h/2);
+    ctx.fillStyle = '#3a5f8a'; ctx.fillRect(r.cont.x, r.cont.y, r.cont.w, r.cont.h);
+    ctx.fillStyle = '#fff';
+    ctx.fillText('Endless ➜', r.cont.x + r.cont.w/2, r.cont.y + r.cont.h/2);
     ctx.textAlign = 'left';
   }
 
