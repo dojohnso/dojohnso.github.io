@@ -52,7 +52,7 @@
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const IW = 640, IH = 360; // internal resolution (landscape 16:9)
-  const VERSION = 'v33';    // bump alongside CACHE_NAME in sw.js on each release
+  const VERSION = 'v34';    // bump alongside CACHE_NAME in sw.js on each release
 
   const START_CASH = 200;
   const START_HEARTS = 20;
@@ -102,8 +102,34 @@
                        {cost:75,  dmg:3, range:102, fireMs:640, poisTick:7,  poisMs:3000},
                        {cost:120, dmg:5, range:112, fireMs:580, poisTick:11, poisMs:3400} ] },
   };
-  const TOWER_ORDER = ['can','zapper','sprink','scare','beehive','mole','sprayer'];
+  // Ordered by unlock wave so the bar reads left→right as a progression.
+  const TOWER_ORDER = ['can','sprink','zapper','beehive','mole','sprayer','scare'];
   const SELL_REFUND = 0.6; // fraction of total spent returned on sell
+
+  // Account-wide tower unlocks: a tower is available once the player's best wave reached
+  // (across all maps) hits its threshold. 0 = unlocked from the start. Permanent once earned.
+  // Thresholds roughly track when each tower's counter-threat first appears.
+  const TOWER_UNLOCK = {
+    can: 0, sprink: 0,   // starting kit
+    zapper: 3,           // early AoE/slow
+    beehive: 5,          // anti-air, before moths @ wave 6
+    mole: 7,             // chokepoint trap
+    sprayer: 9,          // poison DoT, before the wave-10 boss
+    scare: 12,           // heavy sniper reward
+  };
+  function towerUnlocked(id) { return (meta.topWave || 0) >= (TOWER_UNLOCK[id] || 0); }
+
+  // Capability tags shown as little icons on each tower slot (air / aoe / poison / slow).
+  // Derived from the tower's def flags/stats; order is stable for consistent layout.
+  function towerTags(id) {
+    const def = TOWERS[id], t0 = def.tiers ? def.tiers[0] : {};
+    const tags = [];
+    if (def.antiAir) tags.push('air');
+    if (def.aoe) tags.push('aoe');
+    if (def.proj === 'poison' || t0.poisTick) tags.push('poison');
+    if (def.slow) tags.push('slow');
+    return tags;
+  }
 
   // Pest types. hp/speed scale with wave elsewhere. hearts = cost if it leaks.
   const PESTS = {
@@ -165,14 +191,19 @@
   const META_KEY = 'gardenGuardMeta_v1';
 
   function freshMeta() {
-    return { unlocked: { backyard: true }, best: {} }; // best[mapId] = highest wave cleared
+    // best[mapId] = highest wave cleared; topWave = best wave reached across ALL maps
+    // (drives account-wide tower unlocks).
+    return { unlocked: { backyard: true }, best: {}, topWave: 0 };
   }
   function loadMeta() {
     try {
       const raw = localStorage.getItem(META_KEY);
       if (!raw) return freshMeta();
       const m = JSON.parse(raw);
-      return { unlocked: m.unlocked || { backyard:true }, best: m.best || {} };
+      // Back-fill topWave for existing saves from the best per-map waves they already have.
+      const best = m.best || {};
+      const topWave = m.topWave != null ? m.topWave : Math.max(0, ...Object.values(best));
+      return { unlocked: m.unlocked || { backyard:true }, best, topWave };
     } catch (e) { return freshMeta(); }
   }
   function saveMeta() {
@@ -595,6 +626,7 @@
   }
 
   function placeTower(x, y, type) {
+    if (!towerUnlocked(type)) return false;   // locked towers can't be placed
     if (game.cash < towerBuyCost(type) || !canPlace(x, y, type)) return false;
     game.cash -= towerBuyCost(type);
     game.towers.push({ type, tier: 0, x, y, cooldown: 0, strikeAnim: 0 });
@@ -694,6 +726,7 @@
     game.wave += 1;
     game.waveActive = true;
     game.elapsed = 0;
+    noteWaveReached(game.wave);   // bump account-wide topWave + fire any tower unlocks
     const types = waveSpec(game.wave);
     game.spawnQueue = types.map((type, i) => {
       // The boss lumbers in last, after an extra beat so the swarm clears first.
@@ -748,6 +781,23 @@
         col: colors[(Math.random()*colors.length)|0], r: 2 + Math.random()*2.5 });
     }
     addShake(5);
+  }
+  // Reaching wave n: bump the account-wide topWave and celebrate any tower that just
+  // crossed its unlock threshold (permanent, saved).
+  function noteWaveReached(n) {
+    const prev = meta.topWave || 0;
+    if (n <= prev) return;
+    // towers whose threshold falls in (prev, n] just unlocked
+    const newly = TOWER_ORDER.filter(id => {
+      const th = TOWER_UNLOCK[id] || 0;
+      return th > prev && th <= n;
+    });
+    meta.topWave = n; saveMeta();
+    if (newly.length) {
+      const names = newly.map(id => TOWERS[id].name).join(' + ');
+      celebrate(newly.length > 1 ? 'New Towers!' : 'New Tower!', names + ' unlocked', '#5ad15a');
+      blip(740, 140); blip(990, 180);
+    }
   }
   function unlockNext(mapId) {
     const idx = MAPS.findIndex(m => m.id === mapId);
@@ -1035,6 +1085,68 @@
     ctx.fillRect(cx - gap/2 - bw, cy - h/2, bw, h);
     ctx.fillRect(cx + gap/2,      cy - h/2, bw, h);
   }
+  // Capability tag badge: a colored disc (~R=6) with a small white glyph. Each kind has
+  // its own color + symbol so the kid learns them: air=wing/blue, aoe=burst/orange,
+  // poison=skull/green, slow=snowflake/cyan.
+  const TAG_COLORS = { air:'#4aa3ff', aoe:'#ff8a3c', poison:'#7ec850', slow:'#4ad6c0' };
+  function drawTag(kind, cx, cy) {
+    const R = 6;
+    // disc + dark rim for contrast on any background
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath(); ctx.arc(cx, cy, R + 1, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = TAG_COLORS[kind] || '#ccc';
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI*2); ctx.fill();
+    ctx.save();
+    ctx.strokeStyle = '#fff'; ctx.fillStyle = '#fff';
+    ctx.lineWidth = 1.2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    if (kind === 'air') {
+      // a little wing/chevron suggesting flight
+      ctx.beginPath();
+      ctx.moveTo(cx - 3, cy + 1.5); ctx.quadraticCurveTo(cx - 1, cy - 2.5, cx + 3, cy - 2);
+      ctx.quadraticCurveTo(cx, cy, cx + 2, cy + 2); ctx.stroke();
+    } else if (kind === 'aoe') {
+      // burst: a center dot + short rays
+      ctx.fillRect(cx - 1, cy - 1, 2, 2);
+      for (let a = 0; a < 8; a++) {
+        const an = a * Math.PI / 4;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(an)*2.2, cy + Math.sin(an)*2.2);
+        ctx.lineTo(cx + Math.cos(an)*4,   cy + Math.sin(an)*4);
+        ctx.stroke();
+      }
+    } else if (kind === 'poison') {
+      // skull: round head + two eye sockets + jaw line
+      ctx.beginPath(); ctx.arc(cx, cy - 0.5, 3, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = TAG_COLORS.poison;
+      ctx.beginPath(); ctx.arc(cx - 1.2, cy - 1, 0.9, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx + 1.2, cy - 1, 0.9, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(cx - 1.6, cy + 2, 3.2, 1.6);            // jaw
+      ctx.fillStyle = TAG_COLORS.poison;
+      ctx.fillRect(cx - 1, cy + 2.2, 0.7, 1.2);
+      ctx.fillRect(cx + 0.3, cy + 2.2, 0.7, 1.2);
+    } else if (kind === 'slow') {
+      // snowflake: 3 crossing lines
+      for (let a = 0; a < 3; a++) {
+        const an = a * Math.PI / 3;
+        ctx.beginPath();
+        ctx.moveTo(cx - Math.cos(an)*3.5, cy - Math.sin(an)*3.5);
+        ctx.lineTo(cx + Math.cos(an)*3.5, cy + Math.sin(an)*3.5);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  // Tiny canvas-drawn padlock (locked-tower marker). cx,cy ≈ center; ~7px tall.
+  function drawLock(cx, cy) {
+    ctx.strokeStyle = '#ffd24a'; ctx.lineWidth = 1.3;        // shackle (amber, matches text)
+    ctx.beginPath(); ctx.arc(cx, cy - 2, 1.8, Math.PI, 0); ctx.stroke();
+    ctx.fillStyle = '#ffd24a';                               // body
+    ctx.fillRect(cx - 2.6, cy - 1, 5.2, 4.2);
+    ctx.fillStyle = '#4a3a10';                               // keyhole
+    ctx.fillRect(cx - 0.4, cy + 0.2, 0.8, 1.8);
+  }
   // Canvas-drawn beehive (no sprite): a stacked-dome skep with stripes + entrance hole.
   function drawBeehive(cx, cy, scale) {
     scale = scale || 1;
@@ -1161,40 +1273,59 @@
     // bottom tower bar
     hud.towers.forEach(tb => {
       const id = tb.id;
+      const locked = !towerUnlocked(id);
       const cost = towerBuyCost(id);
-      const affordable = game.cash >= cost;
+      const affordable = !locked && game.cash >= cost;
       const selected = game.selectedTowerType === id;
       ctx.fillStyle = selected ? '#2e7d32' : (affordable ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.25)');
       ctx.fillRect(tb.x, tb.y, tb.w, tb.h);
-      // tower icon (sprite) over a faint color backing; greyed/dimmed when unaffordable
+      // tower icon (sprite) over a faint color backing; dim when unaffordable OR locked
+      const dim = locked ? 0.25 : (affordable ? 1 : 0.4);
       ctx.fillStyle = affordable ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.15)';
       ctx.fillRect(tb.x + 3, tb.y + 4, 26, 26);
       const im = IMG[TOWERS[id].img];
       if (im && im.width) {
-        ctx.globalAlpha = affordable ? 1 : 0.4;
+        ctx.globalAlpha = dim;
         ctx.drawImage(im, tb.x + 4, tb.y + 5);   // 24x24 sprite
         ctx.globalAlpha = 1;
       } else if (id === 'beehive') {              // canvas-drawn beehive icon
-        ctx.globalAlpha = affordable ? 1 : 0.4;
-        drawBeehive(tb.x + 16, tb.y + 17, 0.9);
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = dim; drawBeehive(tb.x + 16, tb.y + 17, 0.9); ctx.globalAlpha = 1;
       } else if (id === 'mole') {                 // canvas-drawn mole-trap icon
-        ctx.globalAlpha = affordable ? 1 : 0.4;
-        drawMole(tb.x + 16, tb.y + 15, 0.95, 0.7);
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = dim; drawMole(tb.x + 16, tb.y + 15, 0.95, 0.7); ctx.globalAlpha = 1;
       } else if (id === 'sprayer') {              // canvas-drawn sprayer icon
-        ctx.globalAlpha = affordable ? 1 : 0.4;
-        drawSprayer(tb.x + 16, tb.y + 15, 0.9);
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = dim; drawSprayer(tb.x + 16, tb.y + 15, 0.9); ctx.globalAlpha = 1;
       } else {                                    // fallback color box if sprite missing
         ctx.fillStyle = affordable ? TOWERS[id].color : '#777';
         ctx.fillRect(tb.x + 4, tb.y + 7, 20, 20);
       }
-      ctx.fillStyle = affordable ? '#fff' : '#999';
       ctx.font = '10px monospace';
-      ctx.fillText(TOWERS[id].short || TOWERS[id].name, tb.x + 32, tb.y + 12);
-      ctx.fillText('$' + cost, tb.x + 32, tb.y + 25);
+      if (locked) {
+        // locked: name dimmed; a padlock + bright "Wave N" requirement under it (kept
+        // left-aligned under the icon so it never crowds the right edge).
+        ctx.fillStyle = '#9aa7b0';
+        ctx.fillText(TOWERS[id].short || TOWERS[id].name, tb.x + 32, tb.y + 12);
+        drawLock(tb.x + 35, tb.y + 25);
+        ctx.fillStyle = '#ffd24a';                 // bright amber reads as "requirement"
+        ctx.font = 'bold 9px monospace';
+        ctx.fillText('Wv ' + TOWER_UNLOCK[id], tb.x + 42, tb.y + 25);
+      } else {
+        ctx.fillStyle = affordable ? '#fff' : '#999';
+        ctx.fillText(TOWERS[id].short || TOWERS[id].name, tb.x + 32, tb.y + 12);
+        ctx.fillText('$' + cost, tb.x + 32, tb.y + 25);
+      }
       ctx.font = '12px monospace';
+      // capability tag badges, floating just ABOVE the slot (right-aligned), always shown
+      // (even when locked) so they double as "here's what this one does".
+      const tags = towerTags(id);
+      if (tags.length) {
+        // sit the badges straddling the slot's top edge (~30% of their height overlaps
+        // the box) so they use less of the play area above the bar.
+        const gap = 15, ty = tb.y - 4;
+        let tx = tb.x + tb.w - 9 - (tags.length - 1) * gap;
+        ctx.globalAlpha = locked ? 0.7 : 1;
+        for (const kind of tags) { drawTag(kind, tx, ty); tx += gap; }
+        ctx.globalAlpha = 1;
+      }
     });
 
     // Start Wave button when idle, with the auto-start countdown
@@ -1338,6 +1469,11 @@
     if (!game.waveActive && inRect(p, hud.startWave)) { startWave(); return; }
     for (const tb of hud.towers) {
       if (inRect(p, tb)) {
+        if (!towerUnlocked(tb.id)) {               // locked — soft reject, hint at the wave
+          blip(200, 90, 'sine');
+          showBanner('Locked', 'Reach Wave ' + TOWER_UNLOCK[tb.id] + ' to unlock', '#aaa', 1600);
+          return;
+        }
         game.selectedTowerType = (game.selectedTowerType === tb.id) ? null : tb.id;
         game.selectedTower = null; game.ghost = null;
         return;
@@ -1807,8 +1943,23 @@
       if (unlocked) card.onclick = () => startMap(m.id);
       cards.appendChild(card);
     });
+    // Capability legend: teaches the little tower-tag icons shown in the game bar.
+    const legendItems = [
+      { kind:'air',    col:'#4aa3ff', label:'Air',    glyph:'<path d="M3 11 Q6 5 13 6 Q8 8 11 13" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>' },
+      { kind:'aoe',    col:'#ff8a3c', label:'Splash', glyph:'<g stroke="#fff" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="1.4" fill="#fff" stroke="none"/><line x1="8" y1="2.5" x2="8" y2="4.5"/><line x1="8" y1="11.5" x2="8" y2="13.5"/><line x1="2.5" y1="8" x2="4.5" y2="8"/><line x1="11.5" y1="8" x2="13.5" y2="8"/><line x1="4" y1="4" x2="5.4" y2="5.4"/><line x1="10.6" y1="10.6" x2="12" y2="12"/><line x1="12" y1="4" x2="10.6" y2="5.4"/><line x1="5.4" y1="10.6" x2="4" y2="12"/></g>' },
+      { kind:'poison', col:'#7ec850', label:'Poison', glyph:'<circle cx="8" cy="7" r="3.4" fill="#fff"/><circle cx="6.6" cy="6.6" r="1" fill="#7ec850"/><circle cx="9.4" cy="6.6" r="1" fill="#7ec850"/><rect x="6" y="10" width="4" height="2.2" fill="#fff"/>' },
+      { kind:'slow',   col:'#4ad6c0', label:'Slow',   glyph:'<g stroke="#fff" stroke-width="1.4" stroke-linecap="round"><line x1="8" y1="3" x2="8" y2="13"/><line x1="3.7" y1="5.5" x2="12.3" y2="10.5"/><line x1="12.3" y1="5.5" x2="3.7" y2="10.5"/></g>' },
+    ];
+    const legendHTML = legendItems.map(it =>
+      '<span style="display:inline-flex;align-items:center;gap:5px;margin:0 8px">'
+      + '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="' + it.col + '"/>' + it.glyph + '</svg>'
+      + '<span>' + it.label + '</span></span>').join('');
     el.insertAdjacentHTML('beforeend',
-      '<div style="margin-top:16px;font-size:11px;opacity:.4;font-family:monospace">' + VERSION + '</div>');
+      '<div style="margin-top:18px;font-size:11px;opacity:.75;font-family:monospace;display:flex;'
+      + 'flex-wrap:wrap;justify-content:center;align-items:center;max-width:420px">'
+      + '<span style="opacity:.6;margin-right:4px">Tower tags:</span>' + legendHTML + '</div>');
+    el.insertAdjacentHTML('beforeend',
+      '<div style="margin-top:14px;font-size:11px;opacity:.4;font-family:monospace">' + VERSION + '</div>');
     el.classList.remove('hidden');
   }
   function prevMapName(mapId) {
