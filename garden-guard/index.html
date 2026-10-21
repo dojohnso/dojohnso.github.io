@@ -52,7 +52,7 @@
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const IW = 640, IH = 360; // internal resolution (landscape 16:9)
-  const VERSION = 'v35';    // bump alongside CACHE_NAME in sw.js on each release
+  const VERSION = 'v36';    // bump alongside CACHE_NAME in sw.js on each release
 
   const START_CASH = 200;
   const START_HEARTS = 20;
@@ -1233,7 +1233,11 @@
     ctx.fillStyle = '#fff'; ctx.font = '12px monospace'; ctx.textBaseline = 'middle';
     ctx.fillText('♥ ' + game.hearts, 8, 11);
     ctx.fillText('$ ' + game.cash, 90, 11);
-    ctx.fillText('Wave ' + game.wave, 180, 11);
+    // Wave counter shows progress toward the win (n/20); once defended, a ★ marks endless.
+    const waveLabel = game.wave > WIN_WAVE
+      ? 'Wave ' + game.wave + '★'
+      : 'Wave ' + game.wave + '/' + WIN_WAVE;
+    ctx.fillText(waveLabel, 180, 11);
     if (game.def) ctx.fillText(game.def.name, 290, 11);
     // version tag, right-aligned in the header
     ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(255,255,255,0.5)';
