@@ -52,7 +52,7 @@
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const IW = 640, IH = 360; // internal resolution (landscape 16:9)
-  const VERSION = 'v34';    // bump alongside CACHE_NAME in sw.js on each release
+  const VERSION = 'v35';    // bump alongside CACHE_NAME in sw.js on each release
 
   const START_CASH = 200;
   const START_HEARTS = 20;
@@ -94,10 +94,11 @@
               tiers: [ {cost:80,  dmg:120, range:16, fireMs:7000},
                        {cost:70,  dmg:260, range:16, fireMs:6000},
                        {cost:120, dmg:520, range:16, fireMs:5000} ] },
-    // Poison Sprayer: low direct dmg, but a hit POISONS the target (duration-based DoT that
-    // ticks small damage and bypasses armor). Re-spraying refreshes/extends. Great vs tanky/
-    // slow (snails, caterpillars, boss), weak vs fast swarms. poisTick=dmg/tick, poisMs=duration.
-    sprayer:{ name: 'Poison Sprayer', short:'Spray',   color: '#8fb04a', proj: 'poison',
+    // Thorn Flinger: flings a single poison-tipped thorn at one target (GROUND or AIR —
+    // antiAir). Low direct dmg, but the thorn POISONS: duration-based DoT that ticks small
+    // damage and bypasses armor. Re-hitting refreshes/extends. Great vs tanky/slow (snails,
+    // caterpillars, boss) + a 2nd anti-air option. poisTick=dmg/tick, poisMs=duration.
+    sprayer:{ name: 'Thorn Flinger', short:'Thorn',   color: '#7fae3c', proj: 'poison', antiAir:true,
               tiers: [ {cost:85,  dmg:2, range:92,  fireMs:700, poisTick:4,  poisMs:2600},
                        {cost:75,  dmg:3, range:102, fireMs:640, poisTick:7,  poisMs:3000},
                        {cost:120, dmg:5, range:112, fireMs:580, poisTick:11, poisMs:3400} ] },
@@ -1195,26 +1196,32 @@
     }
     ctx.restore();
   }
-  // Canvas-drawn poison sprayer: a green tank with a nozzle + a couple of drip dots.
+  // Canvas-drawn Thorn Flinger: a bramble bush/pod with spiky stems radiating out,
+  // tipped with poison thorns (purple-green). Reads as "shoots toxic thorns".
   function drawSprayer(cx, cy, scale) {
     scale = scale || 1;
     ctx.save(); ctx.translate(cx, cy);
-    // tank body
-    ctx.fillStyle = '#6f9a38';
-    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-7*scale, -3*scale, 14*scale, 13*scale, 3*scale)
-                                   : ctx.rect(-7*scale, -3*scale, 14*scale, 13*scale);
-    ctx.fill();
-    ctx.fillStyle = '#8fb04a';                               // lighter front panel
-    ctx.fillRect(-5*scale, -1*scale, 10*scale, 9*scale);
-    // nozzle on top
-    ctx.fillStyle = '#4a5f28';
-    ctx.fillRect(-2*scale, -9*scale, 4*scale, 6*scale);
-    ctx.fillRect(2*scale, -8*scale, 4*scale, 2.5*scale);     // spout
-    // hazard drips
-    ctx.fillStyle = '#c6e86a';
-    ctx.beginPath(); ctx.arc(0, 2*scale, 2*scale, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#4a5f28';
-    ctx.beginPath(); ctx.arc(0, 2*scale, 0.9*scale, 0, Math.PI*2); ctx.fill();
+    // spiky thorn stems radiating up/out
+    ctx.strokeStyle = '#4a6b24'; ctx.lineWidth = 1.6 * scale; ctx.lineCap = 'round';
+    const stems = [ [-7,-7], [0,-10], [7,-7], [-9,-1], [9,-1] ];
+    for (const [ex, ey] of stems) {
+      ctx.beginPath(); ctx.moveTo(0, 1*scale); ctx.lineTo(ex*scale*0.8, ey*scale*0.8); ctx.stroke();
+      // poison thorn tip (a small pointed diamond)
+      const tx = ex*scale*0.8, ty = ey*scale*0.8;
+      ctx.fillStyle = '#9d6fc0';                            // poison purple
+      ctx.beginPath();
+      ctx.moveTo(tx, ty - 2.4*scale); ctx.lineTo(tx + 1.6*scale, ty);
+      ctx.lineTo(tx, ty + 2.4*scale); ctx.lineTo(tx - 1.6*scale, ty); ctx.closePath(); ctx.fill();
+    }
+    // bramble pod / base bush
+    ctx.fillStyle = '#5f8a2e';
+    ctx.beginPath(); ctx.arc(0, 2*scale, 6*scale, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#7fae3c';                               // lit top
+    ctx.beginPath(); ctx.arc(-1.5*scale, 0.5*scale, 3.2*scale, 0, Math.PI*2); ctx.fill();
+    // a couple of toxic berries
+    ctx.fillStyle = '#b388e0';
+    ctx.beginPath(); ctx.arc(2.5*scale, 3*scale, 1.4*scale, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(-2.5*scale, 4*scale, 1.1*scale, 0, Math.PI*2); ctx.fill();
     ctx.restore();
   }
 
@@ -1749,10 +1756,15 @@
         ctx.fillStyle = '#3a2a00';
         ctx.fillRect(pr.x - 0.6 + bw*0.3, pr.y - 2.4, 1.2, 4.8);   // stripe
       } else if (pr.kind === 'poison') {
-        ctx.fillStyle = '#9fd14a';                              // green glob with dark core
-        ctx.beginPath(); ctx.arc(pr.x, pr.y, 3, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle = 'rgba(60,90,20,0.8)';
-        ctx.beginPath(); ctx.arc(pr.x, pr.y, 1.3, 0, Math.PI*2); ctx.fill();
+        // a flying thorn: a small pointed sliver aimed along its travel direction
+        const ang = Math.atan2(pr.ty - pr.y, pr.tx - pr.x);
+        ctx.save(); ctx.translate(pr.x, pr.y); ctx.rotate(ang);
+        ctx.fillStyle = '#9d6fc0';                              // poison-purple thorn
+        ctx.beginPath();
+        ctx.moveTo(4, 0); ctx.lineTo(-3, 1.6); ctx.lineTo(-3, -1.6); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#5a7d2a';                              // green base
+        ctx.fillRect(-3.5, -1, 1.6, 2);
+        ctx.restore();
       } else {
         ctx.fillStyle = '#fff';
         ctx.beginPath(); ctx.arc(pr.x, pr.y, 3, 0, Math.PI*2); ctx.fill();
