@@ -52,7 +52,7 @@
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const IW = 640, IH = 360; // internal resolution (landscape 16:9)
-  const VERSION = 'v36';    // bump alongside CACHE_NAME in sw.js on each release
+  const VERSION = 'v37';    // bump alongside CACHE_NAME in sw.js on each release
 
   const START_CASH = 200;
   const START_HEARTS = 20;
@@ -89,11 +89,12 @@
                        {cost:140, dmg:13, range:118, fireMs:740,  bees:3} ] },
     // Mole Trap: no range ring — a buried trap. When a GROUND pest crosses its spot it
     // pops up for big fixed damage (chunks bosses, one-shots normal pests), then burrows
-    // for a cooldown before re-arming. Can't hit flyers. 'trig' = trigger radius (px).
-    mole:   { name: 'Mole Trap',      short:'Mole',    color: '#7a5230', trap:true, trig:16,
-              tiers: [ {cost:80,  dmg:120, range:16, fireMs:7000},
-                       {cost:70,  dmg:260, range:16, fireMs:6000},
-                       {cost:120, dmg:520, range:16, fireMs:5000} ] },
+    // for a cooldown before re-arming. Can't hit flyers. The blast also SPLASHES nearby
+    // ground pests (within 'splash' px) at a fraction of the damage. 'trig' = trigger radius.
+    mole:   { name: 'Mole Trap',      short:'Mole',    color: '#7a5230', trap:true, trig:16, splashFrac:0.6,
+              tiers: [ {cost:80,  dmg:120, range:16, fireMs:7000, splash:30},
+                       {cost:70,  dmg:260, range:16, fireMs:6000, splash:40},
+                       {cost:120, dmg:520, range:16, fireMs:5000, splash:52} ] },
     // Thorn Flinger: flings a single poison-tipped thorn at one target (GROUND or AIR —
     // antiAir). Low direct dmg, but the thorn POISONS: duration-based DoT that ticks small
     // damage and bypasses armor. Re-hitting refreshes/extends. Great vs tanky/slow (snails,
@@ -126,7 +127,7 @@
     const def = TOWERS[id], t0 = def.tiers ? def.tiers[0] : {};
     const tags = [];
     if (def.antiAir) tags.push('air');
-    if (def.aoe) tags.push('aoe');
+    if (def.aoe || t0.splash) tags.push('aoe');   // splash = area damage (mole blast)
     if (def.proj === 'poison' || t0.poisTick) tags.push('poison');
     if (def.slow) tags.push('slow');
     return tags;
@@ -675,7 +676,9 @@
     // wave-20 boss absurd. Everything else uses the standard per-wave HP ramp.
     const hp = base.boss
       ? Math.round(base.hp * (1 + (n - 10) * 0.08) * mapDiff())   // +8% HP per wave past 10
-      : Math.round(base.hp * Math.pow(1.20, n - 1) * mapDiff());
+      : Math.round(base.hp * Math.pow(1.13, n - 1) * mapDiff());  // flattened from 1.20 — 1.20
+                                                                 // made the back half (18-20) an
+                                                                 // unwinnable HP cliff vs linear DPS
     const speed = base.speed * (1 + Math.min(0.75, (n - 1) * 0.026));
     return { type, hp, maxHp: hp, dist: dist0 || 0, speed, slowUntil: 0 };
   }
@@ -881,7 +884,20 @@
         }
         if (hit) {
           damagePest(hit, s.dmg);
+          // splash: catch nearby GROUND pests in the blast at a fraction of the damage.
+          // Radius grows with tier (s.splash), so upgrading visibly widens the boom.
+          const splashR = s.splash || 0;
+          if (splashR) {
+            const sr2 = splashR * splashR, frac = def.splashFrac || 0.5;
+            for (const p of game.pests.slice()) {
+              if (p === hit || PESTS[p.type].flying) continue;   // primary already hit; no flyers
+              const pt = pointAt(game.path, p.dist);
+              if (dist2(pt.x, pt.y, t.x, t.y) <= sr2) damagePest(p, s.dmg * frac);
+            }
+            burst(t.x, t.y, '#c08a4a', Math.round(10 + splashR*0.2), 0.18);  // dirt-blast puff scales a bit
+          }
           blip(120, 120, 'square');
+          addShake(4);
           t.strikeAnim = 320;                                // show the mole for 320ms
           t.cooldown = s.fireMs;                             // burrow + re-arm
         }
@@ -1778,9 +1794,17 @@
     if (game.selectedTower) {
       const t = game.selectedTower, s = towerTierStats(t), def = TOWERS[t.type];
       if (def.trap) {
-        ctx.strokeStyle = 'rgba(255,220,160,0.7)'; ctx.setLineDash([4, 3]);
+        // blast-radius: a translucent fill + bright bold ring (grows with tier) so the
+        // area is obvious, then the solid trigger circle inside it.
+        if (s.splash) {
+          ctx.fillStyle = 'rgba(255,120,30,0.16)';
+          ctx.beginPath(); ctx.arc(t.x, t.y, s.splash, 0, Math.PI*2); ctx.fill();
+          ctx.strokeStyle = '#ff7a1a'; ctx.setLineDash([6, 4]); ctx.lineWidth = 2.5;
+          ctx.beginPath(); ctx.arc(t.x, t.y, s.splash, 0, Math.PI*2); ctx.stroke();
+        }
+        ctx.strokeStyle = '#ffe14a'; ctx.setLineDash([4, 3]); ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(t.x, t.y, def.trig || 16, 0, Math.PI*2); ctx.stroke();
-        ctx.setLineDash([]);
+        ctx.setLineDash([]); ctx.lineWidth = 1;
       } else {
         ctx.strokeStyle = 'rgba(255,255,255,0.5)';
         ctx.beginPath(); ctx.arc(t.x, t.y, s.range, 0, Math.PI*2); ctx.stroke();
